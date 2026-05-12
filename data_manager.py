@@ -468,10 +468,19 @@ def get_apontamentos_do_dia(data_alvo_date):
     Colunas retornadas: BLOCO, NOME_MATERIAL, PROCESSO_APONTADO, RESUMIDO, SETOR_AP, QTD_CH, DATA_REG
     """
     try:
+        # Busca dinâmica do cabeçalho (procura pela linha que contém 'PROCESSO' ou 'DATA REG')
+        df_full = pd.read_excel(_get_apontamento_file(), sheet_name=_get_sheet("SHEET_AP_BD"), header=None, engine="openpyxl", nrows=20)
+        header_row = 6 # fallback padrão
+        for i, row in df_full.iterrows():
+            row_vals = [str(v).strip().upper() for v in row.values if pd.notna(v)]
+            if "PROCESSO" in row_vals or "DATA REG" in row_vals or "MATERIAL+BLOCO" in row_vals:
+                header_row = i
+                break
+        
         df = pd.read_excel(
             _get_apontamento_file(),
             sheet_name=_get_sheet("SHEET_AP_BD"),
-            skiprows=6,
+            skiprows=header_row,
             engine="openpyxl"
         )
         # Limpar nomes de colunas (há espaços e normalizar para maiúsculo)
@@ -516,13 +525,13 @@ def get_apontamentos_do_dia(data_alvo_date):
             return pd.DataFrame()
 
         def extrair_bloco(row):
-            b = str(row.get("BLOCO_RAW", "")).strip()
-            if b and b not in ["", "nan", "None"]:
-                b = b.replace(".0", "").strip()
-                return b
+            b = row.get("BLOCO_RAW")
+            if pd.notna(b) and str(b).strip() not in ["", "nan", "None"]:
+                return str(b).strip().split(".")[0].upper()
+            
             mat_bloco = str(row.get("MAT_BLOCO", "")).strip()
             if "-" in mat_bloco:
-                return mat_bloco.rsplit("-", 1)[-1].strip()
+                return mat_bloco.rsplit("-", 1)[-1].strip().split(".")[0].upper()
             return ""
 
         df_dia["BLOCO"] = df_dia.apply(extrair_bloco, axis=1)

@@ -167,7 +167,7 @@ with tab_block:
                             rot.append({
                                 "PROCESSO": str(r.get("PROCESSO", "")),
                                 "SETOR": str(r.get("SETOR", "")),
-                                "OBSERVACAO": str(r.get("OBSERVAÇÃO DE PRODUÇÃO", "")),
+                                "OBSERVACAO": str(r.get("OBSERVACAO DE PRODUÇÃO", "")),
                                 "STATUS PROCESSO": str(r.get("STATUS PROCESSO", "")),
                                 "DATA": str(r.get("DATA", "")),
                                 "DATA REALIZADA": str(r.get("DATA REALIZADA", ""))
@@ -565,7 +565,9 @@ with tab_apontamento:
             df_prog_dia = df_prog_dia[df_prog_dia["SETOR"] == maq_ap_sel]
 
         def norm_bloco(b):
-            return str(b).strip().replace(".0", "").upper()
+            if pd.isna(b): return ""
+            # Remove .0 de floats, remove espaços e coloca em maiúsculo
+            return str(b).strip().split(".")[0].upper()
 
         # Mapa de bloco -> SETOR_AP do apontamento (para preencher máquinas sem SETOR)
         bloco_para_setor_ap = {}
