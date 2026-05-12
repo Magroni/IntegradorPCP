@@ -474,19 +474,37 @@ def get_apontamentos_do_dia(data_alvo_date):
             skiprows=6,
             engine="openpyxl"
         )
-        # Limpar nomes de colunas (há espaços)
-        df.columns = [str(c).strip() for c in df.columns]
+        # Limpar nomes de colunas (há espaços e normalizar para maiúsculo)
+        orig_cols = [str(c).strip().upper() for c in df.columns]
+        df.columns = orig_cols
 
-        df = df.rename(columns={
-            "DATA REG": "DATA_REG",
-            "MATERIAL+BLOCO": "MAT_BLOCO",
-            "NOME MATERIAL": "NOME_MATERIAL",
-            "Nº BLOCO": "BLOCO_RAW",
-            "PROCESSO": "PROCESSO_APONTADO",
-            "SETOR": "SETOR_AP",
-            "QTD CH (SEM RET & REPASSE)": "QTD_CH",
-            "QTD M² (SEM RET & REPASSE)": "QTD_M2"
-        })
+        # Mapeamento robusto (procura por nomes exatos ou parciais)
+        mapping = {
+            "DATA_REG": ["DATA REG", "DATA", "DATA_REG"],
+            "MAT_BLOCO": ["MATERIAL+BLOCO", "MAT+BLO", "MATERIAL BLOCO"],
+            "NOME_MATERIAL": ["NOME MATERIAL", "MATERIAL", "NOME_MATERIAL"],
+            "BLOCO_RAW": ["Nº BLOCO", "NUM BLOCO", "BLOCO", "N BLOCO"],
+            "PROCESSO_APONTADO": ["PROCESSO", "PROC", "PROCESSO_APONTADO"],
+            "SETOR_AP": ["SETOR", "MAQUINA", "MÁQUINA", "SETOR_AP"],
+            "QTD_CH": ["QTD CH (SEM RET & REPASSE)", "QTD CH", "CHAPAS", "QTD_CH"],
+            "QTD_M2": ["QTD M² (SEM RET & REPASSE)", "QTD M2", "METRAGEM", "QTD_M2"]
+        }
+
+        rename_dict = {}
+        for target, aliases in mapping.items():
+            for alias in aliases:
+                if alias.upper() in orig_cols:
+                    rename_dict[alias.upper()] = target
+                    break
+        
+        df = df.rename(columns=rename_dict)
+
+        if "DATA_REG" not in df.columns:
+            # Tenta encontrar qualquer coluna que tenha 'DATA' no nome se não achou a exata
+            for c in df.columns:
+                if "DATA" in c:
+                    df = df.rename(columns={c: "DATA_REG"})
+                    break
 
         df = df.dropna(subset=["DATA_REG"])
         df["DATA_REG"] = pd.to_datetime(df["DATA_REG"], errors="coerce")
