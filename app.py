@@ -505,45 +505,72 @@ with tab_apontamento:
     st.header("✅ Apontamento de Produção")
     st.markdown("Cruza o que foi **apontado na planilha de produção** com o que estava **programado**, para você confirmar o que foi REALIZADO.")
 
-    # ---- NOVO FORMULÁRIO DE APONTAMENTO MANUAL ----
+    # ---- NOVO FORMULÁRIO DE APONTAMENTO MANUAL DINÂMICO ----
     with st.expander("➕ Lançar Novo Apontamento Manual", expanded=False):
-        st.markdown("Use este formulário para registrar uma produção diretamente na planilha de apontamento.")
-        with st.form("form_novo_apontamento"):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                f_data = st.date_input("Data do Registro", value=datetime.now(), format="DD/MM/YYYY")
-                f_bloco = st.text_input("Bloco*", placeholder="Ex: 1234")
-            with col2:
-                f_material = st.text_input("Material*", placeholder="Ex: ALPINUS")
-                mapa_ap = dm.get_mapa_resumido_processos()
-                opcoes_proc = sorted(list(mapa_ap.keys()))
-                f_processo = st.selectbox("Processo*", [""] + opcoes_proc)
-            with col3:
-                setores_disponiveis = sorted(list(set(str(x) for x in df["SETOR"].unique() if str(x) not in ["", "nan"])))
-                f_setor = st.selectbox("Máquina/Setor*", [""] + setores_disponiveis)
-                c_ch, c_m2 = st.columns(2)
-                f_qtd_ch = c_ch.number_input("Chapas", min_value=0, step=1)
-                f_qtd_m2 = c_m2.number_input("M²", min_value=0.0, step=0.1)
-            
-            if st.form_submit_button("🚀 Gravar Apontamento", type="primary", use_container_width=True):
-                if not f_bloco or not f_material or not f_processo or not f_setor:
-                    st.error("Por favor, preencha todos os campos obrigatórios (*).")
-                else:
-                    novo_ap_dict = {
-                        "DATA_REG": f_data.strftime("%d/%m/%Y"),
-                        "BLOCO_RAW": f_bloco,
-                        "NOME_MATERIAL": f_material.upper(),
-                        "MAT_BLOCO": f"{f_material.upper()}-{f_bloco}",
-                        "PROCESSO_APONTADO": f_processo,
-                        "SETOR_AP": f_setor,
-                        "QTD_CH": f_qtd_ch,
-                        "QTD_M2": f_qtd_m2
-                    }
-                    if dm.add_apontamento(novo_ap_dict):
-                        st.success(f"✅ Apontamento do bloco {f_bloco} gravado com sucesso!")
-                        st.balloons()
+        st.markdown("### Registro de Produção")
+        
+        # Processo fora do form para tornar o formulário dinâmico
+        opcoes_proc_padrao = sorted(lista_processos)
+        f_processo = st.selectbox("1. Selecione o Processo*", [""] + opcoes_proc_padrao, key="ap_f_proc")
+        
+        if f_processo:
+            with st.form("form_novo_apontamento_dyn"):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    f_data = st.date_input("Data do Registro", value=datetime.now(), format="DD/MM/YYYY")
+                    f_bloco = st.text_input("Bloco*", placeholder="Ex: 1234")
+                    f_material = st.text_input("Material*", placeholder="Ex: ALPINUS")
+                
+                with col2:
+                    setores_disponiveis = sorted(list(set(str(x) for x in df["SETOR"].unique() if str(x) not in ["", "nan"])))
+                    f_setor = st.selectbox("Máquina/Setor*", [""] + setores_disponiveis)
+                    f_qtd_ch = st.number_input("Qtd Chapas", min_value=0, step=1)
+                    f_qtd_m2 = st.number_input("Qtd M²", min_value=0.0, step=0.1)
+
+                with col3:
+                    st.markdown("**Insumos / Detalhes**")
+                    extra_data = {}
+                    
+                    proc_upper = f_processo.upper()
+                    # Lógica dinâmica de campos baseada no processo
+                    if "POLIR" in proc_upper or "POLIMENTO" in proc_upper:
+                        extra_data["ABRASIVOS"] = st.text_input("Abrasivos Utilizados")
+                    
+                    elif "RESINAR" in proc_upper or "RESINAGEM" in proc_upper or "TELA" in proc_upper:
+                        extra_data["RESINA"] = st.text_input("Tipo de Resina")
+                        extra_data["TELA"] = st.text_input("Tipo de Tela / Manta")
+                    
+                    elif "RETOQUE" in proc_upper:
+                        extra_data["IMPERMEABILIZANTE"] = st.text_input("Impermeabilizante")
+                        extra_data["LIXA"] = st.text_input("Lixa Utilizada")
+                    
+                    if not extra_data:
+                        st.info("Este processo não exige apontamento de insumos específicos.")
+                
+                if st.form_submit_button("🚀 Gravar Apontamento", type="primary", use_container_width=True):
+                    if not f_bloco or not f_material or not f_setor:
+                        st.error("Por favor, preencha todos os campos obrigatórios (*).")
                     else:
-                        st.error("Erro ao gravar apontamento no arquivo Excel.")
+                        novo_ap_dict = {
+                            "DATA_REG": f_data.strftime("%d/%m/%Y"),
+                            "BLOCO_RAW": f_bloco,
+                            "NOME_MATERIAL": f_material.upper(),
+                            "MAT_BLOCO": f"{f_material.upper()}-{f_bloco}",
+                            "PROCESSO_APONTADO": f_processo,
+                            "SETOR_AP": f_setor,
+                            "QTD_CH": f_qtd_ch,
+                            "QTD_M2": f_qtd_m2
+                        }
+                        # Adiciona campos extras dinâmicos
+                        novo_ap_dict.update(extra_data)
+                        
+                        if dm.add_apontamento(novo_ap_dict):
+                            st.success(f"✅ Apontamento do bloco {f_bloco} gravado com sucesso!")
+                            st.balloons()
+                        else:
+                            st.error("Erro ao gravar apontamento no arquivo Excel.")
+        else:
+            st.info("Selecione um processo acima para abrir o formulário correspondente.")
 
     st.divider()
 

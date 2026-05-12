@@ -586,23 +586,35 @@ def add_apontamento(record_dict):
                 next_row = r
                 break
         
-        # Mapeamento de campos do dicionário para colunas reais
-        mapping = {
-            "DATA_REG": "DATA REG",
-            "MAT_BLOCO": "MATERIAL+BLOCO",
-            "NOME_MATERIAL": "NOME MATERIAL",
-            "BLOCO_RAW": "Nº BLOCO",
-            "PROCESSO_APONTADO": "PROCESSO",
-            "SETOR_AP": "SETOR",
-            "QTD_CH": "QTD CH (SEM RET & REPASSE)",
-            "QTD_M2": "QTD M² (SEM RET & REPASSE)"
+        # Mapeamento de campos fixos do sistema para nomes prováveis no Excel
+        system_mapping = {
+            "DATA_REG": ["DATA REG", "DATA", "DATA_REG"],
+            "MAT_BLOCO": ["MATERIAL+BLOCO", "MAT+BLO", "MATERIAL BLOCO"],
+            "NOME_MATERIAL": ["NOME MATERIAL", "MATERIAL", "NOME_MATERIAL"],
+            "BLOCO_RAW": ["Nº BLOCO", "NUM BLOCO", "BLOCO", "N BLOCO"],
+            "PROCESSO_APONTADO": ["PROCESSO", "PROC", "PROCESSO_APONTADO"],
+            "SETOR_AP": ["SETOR", "MAQUINA", "MÁQUINA", "SETOR_AP"],
+            "QTD_CH": ["QTD CH (SEM RET & REPASSE)", "QTD CH", "CHAPAS", "QTD_CH"],
+            "QTD_M2": ["QTD M² (SEM RET & REPASSE)", "QTD M2", "METRAGEM", "QTD_M2"]
         }
 
-        for key, target_col_name in mapping.items():
-            if key in record_dict and target_col_name in headers:
+        # 1. Primeiro grava os campos mapeados pelo sistema
+        for key, value in record_dict.items():
+            target_col_name = None
+            if key in system_mapping:
+                # Procura qual alias existe no Excel
+                for alias in system_mapping[key]:
+                    if alias.upper() in headers:
+                        target_col_name = alias.upper()
+                        break
+            
+            # 2. Se não for um campo mapeado, tenta gravar pelo nome exato (para campos dinâmicos como ABRASIVOS, etc)
+            if not target_col_name and key.upper() in headers:
+                target_col_name = key.upper()
+
+            if target_col_name:
                 col_idx = headers[target_col_name]
-                val = record_dict[key]
-                ws.cell(row=next_row, column=col_idx, value=val)
+                ws.cell(row=next_row, column=col_idx, value=value)
         
         wb.save(file_path)
         return True
