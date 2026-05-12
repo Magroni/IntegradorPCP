@@ -12,7 +12,8 @@ Sistema web de **PCP (Planejamento e Controle da Produção)** para a **Costa Gr
 - **Servidor:** Roda localmente via `run_app.bat`
 - **Persistência:** Arquivos Excel (`.xlsm` e `.xlsx`) — sem banco de dados relacional
 - **Caminhos configuráveis** via `config.json` (não hardcoded)
-- **Versão:** Controle de versão via Git (armazenado no servidor local)
+- **Versão:** Controle de versão via Git
+- **Repositório Remoto:** [https://github.com/Magroni/IntegradorPCP.git](https://github.com/Magroni/IntegradorPCP.git)
 
 ---
 
@@ -182,6 +183,7 @@ O arquivo `config.json` na raiz do projeto controla os caminhos:
 | 2026-05-12 | Aba 5 (Exportação): Substituído download Excel por relatório HTML com @media print |
 | 2026-05-12 | data_manager.py: Adicionado get_apontamentos_do_dia() e get_mapa_resumido_processos() |
 | 2026-05-12 | Git configurado no projeto; README.md e .gitignore criados |
+| 2026-05-12 | Repositório conectado ao GitHub: `Magroni/IntegradorPCP` |
 
 ---
 
