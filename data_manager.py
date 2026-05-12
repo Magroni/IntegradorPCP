@@ -550,3 +550,62 @@ def get_apontamentos_do_dia(data_alvo_date):
     except Exception as e:
         print(f"Erro ao ler apontamentos do dia: {e}")
         return pd.DataFrame()
+
+
+def add_apontamento(record_dict):
+    """
+    Adiciona um novo registro na aba 'BD' do arquivo de Apontamento.
+    Busca dinamicamente o cabeçalho e insere na próxima linha vazia.
+    """
+    try:
+        file_path = _get_apontamento_file()
+        sheet_name = _get_sheet("SHEET_AP_BD")
+        wb = openpyxl.load_workbook(file_path)
+        ws = wb[sheet_name]
+
+        # Busca dinâmica do cabeçalho (igual ao get)
+        header_row_idx = 6 # 1-indexed fallback
+        for r in range(1, 21):
+            row_vals = [str(ws.cell(row=r, column=c).value).strip().upper() for c in range(1, ws.max_column + 1)]
+            if "PROCESSO" in row_vals or "DATA REG" in row_vals or "MATERIAL+BLOCO" in row_vals:
+                header_row_idx = r
+                break
+        
+        # Mapeia colunas do cabeçalho
+        headers = {}
+        for c in range(1, ws.max_column + 1):
+            val = ws.cell(row=header_row_idx, column=c).value
+            if val:
+                headers[str(val).strip().upper()] = c
+        
+        # Encontra próxima linha vazia (baseada na coluna DATA REG ou PROCESSO)
+        col_ref = headers.get("DATA REG") or headers.get("PROCESSO") or 1
+        next_row = ws.max_row + 1
+        for r in range(header_row_idx + 1, ws.max_row + 2):
+            if ws.cell(row=r, column=col_ref).value is None:
+                next_row = r
+                break
+        
+        # Mapeamento de campos do dicionário para colunas reais
+        mapping = {
+            "DATA_REG": "DATA REG",
+            "MAT_BLOCO": "MATERIAL+BLOCO",
+            "NOME_MATERIAL": "NOME MATERIAL",
+            "BLOCO_RAW": "Nº BLOCO",
+            "PROCESSO_APONTADO": "PROCESSO",
+            "SETOR_AP": "SETOR",
+            "QTD_CH": "QTD CH (SEM RET & REPASSE)",
+            "QTD_M2": "QTD M² (SEM RET & REPASSE)"
+        }
+
+        for key, target_col_name in mapping.items():
+            if key in record_dict and target_col_name in headers:
+                col_idx = headers[target_col_name]
+                val = record_dict[key]
+                ws.cell(row=next_row, column=col_idx, value=val)
+        
+        wb.save(file_path)
+        return True
+    except Exception as e:
+        print(f"Erro ao adicionar apontamento: {e}")
+        return False
