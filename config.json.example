@@ -1,0 +1,9 @@
+{
+    "DB_FILE": "Caminho/Para/Seu/DB.xlsm",
+    "APONTAMENTO_FILE": "Caminho/Para/Seu/DB.xlsx",
+    "SHEET_PROGRAMACAO": "DB",
+    "SHEET_ENTREGUES": "ENTREGUES",
+    "SHEET_BASE_DADOS": "BASE DE DADOS",
+    "SHEET_AP_BD": "DB",
+    "SHEET_AP_BASE": "BASE DADOS"
+}

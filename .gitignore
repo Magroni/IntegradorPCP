@@ -1,0 +1,52 @@
+# ============================================================
+# .gitignore — PCP Costa Granitos / ProgramarProd
+# ============================================================
+
+# --- Bases de dados (arquivos Excel com dados reais) ---
+# NUNCA versionar os arquivos Excel com dados de produção!
+*.xlsm
+*.xlsx
+*.xls
+
+# --- Arquivos de configuração local (caminhos de máquina) ---
+config.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# --- Ambientes virtuais ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Streamlit cache ---
+.streamlit/
+
+# --- Scripts temporários de análise/debug ---
+analise_apontamento.py
+fix_encoding.py
+
+# --- Logs e temporários ---
+*.log
+*.tmp
+*.bak
+
+# --- IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Windows ---
+Thumbs.db
+desktop.ini
