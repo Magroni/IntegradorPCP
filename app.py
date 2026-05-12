@@ -16,7 +16,9 @@ df = dm.get_data()
 df_base = dm.get_base_dados()
 
 if df.empty:
-    st.error("Não foi possível carregar os dados. Verifique se o arquivo está acessível e possui a aba 'PROGRAMAÇÃO'.")
+    aba_p = dm._get_sheet("SHEET_PROGRAMACAO")
+    st.error(f"Não foi possível carregar os dados. Verifique se o arquivo está acessível e possui a aba '{aba_p}'.")
+    st.info("💡 Você pode ajustar o nome do arquivo e da aba na guia 'Opções Gerais' (se conseguir acessar) ou no arquivo config.json.")
     st.stop()
 
 df = df.fillna("")

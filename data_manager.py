@@ -10,8 +10,8 @@ import json
 _CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
 _DEFAULT_CONFIG = {
-    "DB_FILE": r"z:\PCP\PROJETOS MARLON\ProgramarProd\DB.xlsm",
-    "APONTAMENTO_FILE": r"z:\PCP\PROJETOS MARLON\ProgramarProd\DB.xlsx",
+    "DB_FILE": r"z:\PCP\PROJETOS MARLON\ProgramarProd\COSTA GRAN. - PROGRAMAÇÕES - BASE DE DADOS.xlsm",
+    "APONTAMENTO_FILE": r"z:\PCP\PROJETOS MARLON\ProgramarProd\Apontamento Produção (REV 1).xlsx",
     # Nomes das abas (configuráveis pelo usuário)
     "SHEET_PROGRAMACAO": "DB",
     "SHEET_ENTREGUES": "ENTREGUES",
