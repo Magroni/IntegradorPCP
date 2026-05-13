@@ -492,11 +492,11 @@ def get_apontamentos_do_dia(data_alvo_date):
             "DATA_REG": ["DATA REG", "DATA", "DATA_REG"],
             "MAT_BLOCO": ["MATERIAL+BLOCO", "MAT+BLO", "MATERIAL BLOCO"],
             "NOME_MATERIAL": ["NOME MATERIAL", "MATERIAL", "NOME_MATERIAL"],
-            "BLOCO_RAW": ["Nº BLOCO", "NUM BLOCO", "BLOCO", "N BLOCO"],
+            "BLOCO_RAW": ["NUMERO DO BLOCO", "Nº BLOCO", "NUM BLOCO", "BLOCO", "N BLOCO"],
             "PROCESSO_APONTADO": ["PROCESSO", "PROC", "PROCESSO_APONTADO"],
             "SETOR_AP": ["SETOR", "MAQUINA", "MÁQUINA", "SETOR_AP"],
-            "QTD_CH": ["QTD CH (SEM RET & REPASSE)", "QTD CH", "CHAPAS", "QTD_CH"],
-            "QTD_M2": ["QTD M² (SEM RET & REPASSE)", "QTD M2", "METRAGEM", "QTD_M2"]
+            "QTD_CH": ["QTD. CHAPAS", "QTD CH (SEM RET & REPASSE)", "QTD CH", "CHAPAS", "QTD_CH"],
+            "QTD_M2": ["QTD M² (SEM RET & REPASSE)", "QTD M²", "QTD M2", "METRAGEM", "QTD M", "QTD_M2"]
         }
 
         rename_dict = {}
@@ -591,11 +591,30 @@ def add_apontamento(record_dict):
             "DATA_REG": ["DATA REG", "DATA", "DATA_REG"],
             "MAT_BLOCO": ["MATERIAL+BLOCO", "MAT+BLO", "MATERIAL BLOCO"],
             "NOME_MATERIAL": ["NOME MATERIAL", "MATERIAL", "NOME_MATERIAL"],
-            "BLOCO_RAW": ["Nº BLOCO", "NUM BLOCO", "BLOCO", "N BLOCO"],
+            "BLOCO_RAW": ["NUMERO DO BLOCO", "Nº BLOCO", "NUM BLOCO", "BLOCO", "N BLOCO"],
             "PROCESSO_APONTADO": ["PROCESSO", "PROC", "PROCESSO_APONTADO"],
             "SETOR_AP": ["SETOR", "MAQUINA", "MÁQUINA", "SETOR_AP"],
-            "QTD_CH": ["QTD CH (SEM RET & REPASSE)", "QTD CH", "CHAPAS", "QTD_CH"],
-            "QTD_M2": ["QTD M² (SEM RET & REPASSE)", "QTD M2", "METRAGEM", "QTD_M2"]
+            "QTD_CH": ["QTD. CHAPAS", "QTD CH (SEM RET & REPASSE)", "QTD CH", "CHAPAS", "QTD_CH"],
+            "QTD_M2": ["QTD M² (SEM RET & REPASSE)", "QTD M²", "QTD M2", "METRAGEM", "QTD M", "QTD M"],
+            "ESP": ["ESP.", "ESPESSURA", "ESP"],
+            "COMP": ["COMP.", "COMPRIMENTO", "COMP"],
+            "ALT": ["ALT.", "ALTURA", "ALT"],
+            "OPERADOR": ["OPERADOR"],
+            "DUREZA": ["DUREZA"],
+            "DIA_INICIO": ["DIA INICIO", "DIA_INICIO"],
+            "DIA_FIM": ["DIA FIM", "DIA_FIM"],
+            "HORA_INICIO": ["HORA INICIO", "HORA_INICIO"],
+            "HORA_FIM": ["HORA FIM", "HORA_FIM"],
+            "TEMPO_PROCESSO": ["TEMPO DO PROCESSO", "TEMPO", "TEMPO_PROCESSO"],
+            "TURNO": ["TURNO"],
+            "TIPO_ACIDO": ["TIPO ACIDO", "TIPO_ACIDO"],
+            "TIPO_RESINA": ["TPO RESINA", "TIPO RESINA", "TIPO_RESINA"],
+            "QTD_KG": ["QTD.KG", "QTD KG", "QTD_KG"],
+            "TIPO_ENDUR": ["TIPO.ENDUR", "TIPO ENDURECEDOR", "TIPO_ENDUR"],
+            "QTD_KG3": ["QTD.KG3", "QTD KG3", "QTD_KG3"],
+            "V_24H": ["24H", "24 H", "V_24H"],
+            "VEL_ESTEIRA": ["VEL.ESTEIRA", "VEL ESTEIRA", "VEL_ESTEIRA"],
+            "VEL_TRAVE": ["VEL.TRAVE", "VEL TRAVE", "VEL_TRAVE"]
         }
 
         # 1. Primeiro grava os campos mapeados pelo sistema

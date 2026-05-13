@@ -515,57 +515,109 @@ with tab_apontamento:
         
         if f_processo:
             with st.form("form_novo_apontamento_dyn"):
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    f_data = st.date_input("Data do Registro", value=datetime.now(), format="DD/MM/YYYY")
-                    f_bloco = st.text_input("Bloco*", placeholder="Ex: 1234")
+                st.markdown("#### Dados Principais")
+                c_p1, c_p2, c_p3, c_p4 = st.columns(4)
+                with c_p1:
+                    f_data = st.date_input("Data Reg.*", value=datetime.now(), format="DD/MM/YYYY")
+                    f_bloco = st.text_input("Nº Bloco*", placeholder="Ex: 1234")
                     f_material = st.text_input("Material*", placeholder="Ex: ALPINUS")
-                
-                with col2:
+                with c_p2:
                     setores_disponiveis = sorted(list(set(str(x) for x in df["SETOR"].unique() if str(x) not in ["", "nan"])))
                     f_setor = st.selectbox("Máquina/Setor*", [""] + setores_disponiveis)
-                    f_qtd_ch = st.number_input("Qtd Chapas", min_value=0, step=1)
+                    f_operador = st.text_input("Operador")
+                    f_turno = st.selectbox("Turno", ["", "1º Turno", "2º Turno", "3º Turno", "Comercial"])
+                with c_p3:
+                    f_qtd_ch = st.number_input("Qtd Chapas*", min_value=0, step=1)
                     f_qtd_m2 = st.number_input("Qtd M²", min_value=0.0, step=0.1)
+                    f_dureza = st.text_input("Dureza")
+                with c_p4:
+                    f_esp = st.number_input("Espessura", min_value=0.0, step=0.1)
+                    f_comp = st.number_input("Comprimento", min_value=0.0, step=0.1)
+                    f_alt = st.number_input("Altura", min_value=0.0, step=0.1)
 
-                with col3:
-                    st.markdown("**Insumos / Detalhes**")
-                    extra_data = {}
+                st.markdown("#### Tempos")
+                c_t1, c_t2, c_t3, c_t4 = st.columns(4)
+                with c_t1: f_dia_ini = st.date_input("Dia Início", value=datetime.now(), format="DD/MM/YYYY")
+                with c_t2: f_dia_fim = st.date_input("Dia Fim", value=datetime.now(), format="DD/MM/YYYY")
+                with c_t3: f_hora_ini = st.time_input("Hora Início", value=None)
+                with c_t4: f_hora_fim = st.time_input("Hora Fim", value=None)
+
+                st.markdown("#### Insumos Específicos")
+                extra_data = {}
+                proc_upper = f_processo.upper()
+                
+                if "POLIR" in proc_upper or "POLIMENTO" in proc_upper:
+                    c_i1, c_i2 = st.columns(2)
+                    with c_i1: extra_data["VEL_ESTEIRA"] = st.text_input("Vel. Esteira")
+                    with c_i2: extra_data["VEL_TRAVE"] = st.text_input("Vel. Trave")
                     
-                    proc_upper = f_processo.upper()
-                    # Lógica dinâmica de campos baseada no processo
-                    if "POLIR" in proc_upper or "POLIMENTO" in proc_upper:
-                        extra_data["ABRASIVOS"] = st.text_input("Abrasivos Utilizados")
-                    
-                    elif "RESINAR" in proc_upper or "RESINAGEM" in proc_upper or "TELA" in proc_upper:
-                        extra_data["RESINA"] = st.text_input("Tipo de Resina")
-                        extra_data["TELA"] = st.text_input("Tipo de Tela / Manta")
-                    
-                    elif "RETOQUE" in proc_upper:
-                        extra_data["IMPERMEABILIZANTE"] = st.text_input("Impermeabilizante")
-                        extra_data["LIXA"] = st.text_input("Lixa Utilizada")
-                    
-                    if not extra_data:
-                        st.info("Este processo não exige apontamento de insumos específicos.")
+                    with st.expander("🛠️ Sequência de Abrasivos (1 a 20)", expanded=False):
+                        cols_abr = st.columns(4)
+                        for i in range(1, 21):
+                            col_idx = (i - 1) % 4
+                            val_abr = cols_abr[col_idx].text_input(f"Seq. Abr. {i}", key=f"abr_{i}")
+                            if val_abr:
+                                extra_data[f"Seq. Abr. {i}"] = val_abr
+                
+                elif "RESINAR" in proc_upper or "RESINAGEM" in proc_upper or "TELA" in proc_upper:
+                    c_i1, c_i2, c_i3 = st.columns(3)
+                    with c_i1:
+                        extra_data["TIPO_ACIDO"] = st.text_input("Tipo Ácido")
+                        extra_data["TIPO_RESINA"] = st.text_input("Tipo Resina")
+                    with c_i2:
+                        extra_data["QTD_KG"] = st.number_input("Qtd KG (Resina)", min_value=0.0, step=0.1)
+                        extra_data["TIPO_ENDUR"] = st.text_input("Tipo Endurecedor")
+                    with c_i3:
+                        extra_data["QTD_KG3"] = st.number_input("Qtd KG (Endurecedor)", min_value=0.0, step=0.1)
+                        extra_data["V_24H"] = st.text_input("24H")
+                
+                elif "RETOQUE" in proc_upper:
+                    c_i1, c_i2 = st.columns(2)
+                    with c_i1: extra_data["IMPERMEABILIZANTE"] = st.text_input("Impermeabilizante")
+                    with c_i2: extra_data["LIXA"] = st.text_input("Lixa Utilizada")
+                
+                else:
+                    st.info("Nenhum insumo específico necessário para este processo.")
                 
                 if st.form_submit_button("🚀 Gravar Apontamento", type="primary", use_container_width=True):
                     if not f_bloco or not f_material or not f_setor:
                         st.error("Por favor, preencha todos os campos obrigatórios (*).")
                     else:
+                        # Cálculo do tempo de processo
+                        tempo_proc = ""
+                        if f_hora_ini and f_hora_fim:
+                            dt_ini = datetime.combine(f_dia_ini, f_hora_ini)
+                            dt_fim = datetime.combine(f_dia_fim, f_hora_fim)
+                            diff = dt_fim - dt_ini
+                            if diff.total_seconds() > 0:
+                                hours, remainder = divmod(diff.total_seconds(), 3600)
+                                minutes, _ = divmod(remainder, 60)
+                                tempo_proc = f"{int(hours):02d}:{int(minutes):02d}"
+
                         novo_ap_dict = {
                             "DATA_REG": f_data.strftime("%d/%m/%Y"),
                             "BLOCO_RAW": f_bloco,
                             "NOME_MATERIAL": f_material.upper(),
-                            "MAT_BLOCO": f"{f_material.upper()}-{f_bloco}",
                             "PROCESSO_APONTADO": f_processo,
                             "SETOR_AP": f_setor,
                             "QTD_CH": f_qtd_ch,
-                            "QTD_M2": f_qtd_m2
+                            "QTD_M2": f_qtd_m2,
+                            "ESP": f_esp,
+                            "COMP": f_comp,
+                            "ALT": f_alt,
+                            "OPERADOR": f_operador.upper() if f_operador else "",
+                            "DUREZA": f_dureza.upper() if f_dureza else "",
+                            "DIA_INICIO": f_dia_ini.strftime("%d/%m/%Y"),
+                            "DIA_FIM": f_dia_fim.strftime("%d/%m/%Y"),
+                            "HORA_INICIO": f_hora_ini.strftime("%H:%M") if f_hora_ini else "",
+                            "HORA_FIM": f_hora_fim.strftime("%H:%M") if f_hora_fim else "",
+                            "TEMPO_PROCESSO": tempo_proc,
+                            "TURNO": f_turno
                         }
-                        # Adiciona campos extras dinâmicos
                         novo_ap_dict.update(extra_data)
                         
                         if dm.add_apontamento(novo_ap_dict):
-                            st.success(f"✅ Apontamento do bloco {f_bloco} gravado com sucesso!")
+                            st.success(f"✅ Apontamento do bloco {f_bloco} gravado com sucesso! (Tempo Calculado: {tempo_proc if tempo_proc else 'Não aplicável'})")
                             st.balloons()
                         else:
                             st.error("Erro ao gravar apontamento no arquivo Excel.")
