@@ -514,31 +514,32 @@ with tab_apontamento:
         f_processo = st.selectbox("1. Selecione o Processo*", [""] + opcoes_proc_padrao, key="ap_f_proc")
         
         if f_processo:
-            with st.form("form_novo_apontamento_dyn"):
+            with st.form("form_novo_apontamento_dyn", clear_on_submit=True):
                 st.markdown("#### Dados Principais")
                 c_p1, c_p2, c_p3, c_p4 = st.columns(4)
                 with c_p1:
-                    f_data = st.date_input("Data Reg.*", value=datetime.now(), format="DD/MM/YYYY")
-                    f_bloco = st.text_input("Nº Bloco*", placeholder="Ex: 1234")
-                    f_material = st.text_input("Material*", placeholder="Ex: ALPINUS")
+                    f_data = st.date_input("Data Reg.*", value=None, format="DD/MM/YYYY")
+                    f_bloco = st.text_input("Nº Bloco*", value=None, placeholder="Ex: 1234")
+                    f_material = st.text_input("Material*", value=None, placeholder="Ex: ALPINUS")
                 with c_p2:
-                    setores_disponiveis = sorted(list(set(str(x) for x in df["SETOR"].unique() if str(x) not in ["", "nan"])))
+                    setores_ativos = set(str(x) for x in df["SETOR"].unique() if str(x) not in ["", "nan"])
+                    setores_mapa = set(v for v in mapa_processos.values() if v)
+                    setores_disponiveis = sorted(list(setores_ativos | setores_mapa))
                     f_setor = st.selectbox("Máquina/Setor*", [""] + setores_disponiveis)
-                    f_operador = st.text_input("Operador")
-                    f_turno = st.selectbox("Turno", ["", "1º Turno", "2º Turno", "3º Turno", "Comercial"])
+                    f_operador = st.text_input("Operador", value=None)
+                    f_turno = st.selectbox("Turno", ["", "D", "N"])
                 with c_p3:
-                    f_qtd_ch = st.number_input("Qtd Chapas*", min_value=0, step=1)
-                    f_qtd_m2 = st.number_input("Qtd M²", min_value=0.0, step=0.1)
-                    f_dureza = st.text_input("Dureza")
+                    f_qtd_ch = st.number_input("Qtd Chapas*", min_value=0, step=1, value=None)
+                    f_dureza = st.text_input("Dureza", value=None)
                 with c_p4:
-                    f_esp = st.number_input("Espessura", min_value=0.0, step=0.1)
-                    f_comp = st.number_input("Comprimento", min_value=0.0, step=0.1)
-                    f_alt = st.number_input("Altura", min_value=0.0, step=0.1)
+                    f_esp = st.number_input("Espessura", min_value=0.0, step=0.1, value=None)
+                    f_comp = st.number_input("Comprimento (m)", min_value=0.0, step=0.01, value=None)
+                    f_alt = st.number_input("Altura (m)", min_value=0.0, step=0.01, value=None)
 
                 st.markdown("#### Tempos")
                 c_t1, c_t2, c_t3, c_t4 = st.columns(4)
-                with c_t1: f_dia_ini = st.date_input("Dia Início", value=datetime.now(), format="DD/MM/YYYY")
-                with c_t2: f_dia_fim = st.date_input("Dia Fim", value=datetime.now(), format="DD/MM/YYYY")
+                with c_t1: f_dia_ini = st.date_input("Dia Início", value=None, format="DD/MM/YYYY")
+                with c_t2: f_dia_fim = st.date_input("Dia Fim", value=None, format="DD/MM/YYYY")
                 with c_t3: f_hora_ini = st.time_input("Hora Início", value=None)
                 with c_t4: f_hora_fim = st.time_input("Hora Fim", value=None)
 
@@ -546,46 +547,46 @@ with tab_apontamento:
                 extra_data = {}
                 proc_upper = f_processo.upper()
                 
-                if "POLIR" in proc_upper or "POLIMENTO" in proc_upper:
+                if "POLIR" in proc_upper or "POLIMENTO" in proc_upper or "LEVIGAR" in proc_upper:
                     c_i1, c_i2 = st.columns(2)
-                    with c_i1: extra_data["VEL_ESTEIRA"] = st.text_input("Vel. Esteira")
-                    with c_i2: extra_data["VEL_TRAVE"] = st.text_input("Vel. Trave")
+                    with c_i1: extra_data["VEL_ESTEIRA"] = st.text_input("Vel. Esteira", value=None)
+                    with c_i2: extra_data["VEL_TRAVE"] = st.text_input("Vel. Trave", value=None)
                     
                     with st.expander("🛠️ Sequência de Abrasivos (1 a 20)", expanded=False):
                         cols_abr = st.columns(4)
                         for i in range(1, 21):
                             col_idx = (i - 1) % 4
-                            val_abr = cols_abr[col_idx].text_input(f"Seq. Abr. {i}", key=f"abr_{i}")
+                            val_abr = cols_abr[col_idx].text_input(f"Seq. Abr. {i}", value=None, key=f"abr_{i}")
                             if val_abr:
                                 extra_data[f"Seq. Abr. {i}"] = val_abr
                 
-                elif "RESINAR" in proc_upper or "RESINAGEM" in proc_upper or "TELA" in proc_upper:
+                elif any(kw in proc_upper for kw in ["RESINAR", "RESINAGEM", "TELA", "MANTAR", "ESTUCAR"]):
                     c_i1, c_i2, c_i3 = st.columns(3)
                     with c_i1:
-                        extra_data["TIPO_ACIDO"] = st.text_input("Tipo Ácido")
-                        extra_data["TIPO_RESINA"] = st.text_input("Tipo Resina")
+                        extra_data["TIPO_ACIDO"] = st.text_input("Tipo Ácido", value=None)
+                        extra_data["TIPO_RESINA"] = st.text_input("Tipo Resina / Manta", value=None)
                     with c_i2:
-                        extra_data["QTD_KG"] = st.number_input("Qtd KG (Resina)", min_value=0.0, step=0.1)
-                        extra_data["TIPO_ENDUR"] = st.text_input("Tipo Endurecedor")
+                        extra_data["QTD_KG"] = st.number_input("Qtd KG (Resina)", min_value=0.0, step=0.1, value=None)
+                        extra_data["TIPO_ENDUR"] = st.text_input("Tipo Endurecedor", value=None)
                     with c_i3:
-                        extra_data["QTD_KG3"] = st.number_input("Qtd KG (Endurecedor)", min_value=0.0, step=0.1)
-                        extra_data["V_24H"] = st.text_input("24H")
+                        extra_data["QTD_KG3"] = st.number_input("Qtd KG (Endurecedor)", min_value=0.0, step=0.1, value=None)
+                        extra_data["V_24H"] = st.text_input("24H", value=None)
                 
                 elif "RETOQUE" in proc_upper:
                     c_i1, c_i2 = st.columns(2)
-                    with c_i1: extra_data["IMPERMEABILIZANTE"] = st.text_input("Impermeabilizante")
-                    with c_i2: extra_data["LIXA"] = st.text_input("Lixa Utilizada")
+                    with c_i1: extra_data["IMPERMEABILIZANTE"] = st.text_input("Impermeabilizante", value=None)
+                    with c_i2: extra_data["LIXA"] = st.text_input("Lixa Utilizada", value=None)
                 
                 else:
                     st.info("Nenhum insumo específico necessário para este processo.")
                 
                 if st.form_submit_button("🚀 Gravar Apontamento", type="primary", use_container_width=True):
-                    if not f_bloco or not f_material or not f_setor:
+                    if not f_data or not f_bloco or not f_material or not f_setor or f_qtd_ch is None:
                         st.error("Por favor, preencha todos os campos obrigatórios (*).")
                     else:
                         # Cálculo do tempo de processo
                         tempo_proc = ""
-                        if f_hora_ini and f_hora_fim:
+                        if f_hora_ini and f_hora_fim and f_dia_ini and f_dia_fim:
                             dt_ini = datetime.combine(f_dia_ini, f_hora_ini)
                             dt_fim = datetime.combine(f_dia_fim, f_hora_fim)
                             diff = dt_fim - dt_ini
@@ -594,21 +595,27 @@ with tab_apontamento:
                                 minutes, _ = divmod(remainder, 60)
                                 tempo_proc = f"{int(hours):02d}:{int(minutes):02d}"
 
+                        # Cálculo de M2
+                        comp_val = f_comp if f_comp else 0.0
+                        alt_val = f_alt if f_alt else 0.0
+                        ch_val = f_qtd_ch if f_qtd_ch else 0
+                        calc_m2 = comp_val * alt_val * ch_val
+
                         novo_ap_dict = {
                             "DATA_REG": f_data.strftime("%d/%m/%Y"),
                             "BLOCO_RAW": f_bloco,
                             "NOME_MATERIAL": f_material.upper(),
                             "PROCESSO_APONTADO": f_processo,
                             "SETOR_AP": f_setor,
-                            "QTD_CH": f_qtd_ch,
-                            "QTD_M2": f_qtd_m2,
-                            "ESP": f_esp,
-                            "COMP": f_comp,
-                            "ALT": f_alt,
+                            "QTD_CH": ch_val,
+                            "QTD_M2": round(calc_m2, 3) if calc_m2 > 0 else 0.0,
+                            "ESP": f_esp if f_esp else "",
+                            "COMP": comp_val if comp_val > 0 else "",
+                            "ALT": alt_val if alt_val > 0 else "",
                             "OPERADOR": f_operador.upper() if f_operador else "",
                             "DUREZA": f_dureza.upper() if f_dureza else "",
-                            "DIA_INICIO": f_dia_ini.strftime("%d/%m/%Y"),
-                            "DIA_FIM": f_dia_fim.strftime("%d/%m/%Y"),
+                            "DIA_INICIO": f_dia_ini.strftime("%d/%m/%Y") if f_dia_ini else "",
+                            "DIA_FIM": f_dia_fim.strftime("%d/%m/%Y") if f_dia_fim else "",
                             "HORA_INICIO": f_hora_ini.strftime("%H:%M") if f_hora_ini else "",
                             "HORA_FIM": f_hora_fim.strftime("%H:%M") if f_hora_fim else "",
                             "TEMPO_PROCESSO": tempo_proc,
