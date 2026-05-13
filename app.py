@@ -657,15 +657,7 @@ with tab_apontamento:
                 st.info("Selecione um processo acima para abrir o formulário correspondente.")
         else:
             st.info("Selecione um Tipo de Processo acima para começar.")
-                        novo_ap_dict.update(extra_data)
-                        
-                        if dm.add_apontamento(novo_ap_dict):
-                            st.success(f"✅ Apontamento do bloco {f_bloco} gravado com sucesso! (Tempo Calculado: {tempo_proc if tempo_proc else 'Não aplicável'})")
-                            st.balloons()
-                        else:
-                            st.error("Erro ao gravar apontamento no arquivo Excel.")
-        else:
-            st.info("Selecione um processo acima para abrir o formulário correspondente.")
+
 
     st.divider()
 
