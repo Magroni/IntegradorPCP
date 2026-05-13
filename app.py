@@ -523,7 +523,7 @@ with tab_apontamento:
                     st.markdown("#### Dados Principais")
                     c_p1, c_p2, c_p3, c_p4 = st.columns(4)
                     with c_p1:
-                        f_data = st.date_input("Data Reg.*", value=None, format="DD/MM/YYYY")
+                        f_data = st.date_input("Data Reg.*", value=datetime.now(), format="DD/MM/YYYY")
                         f_bloco = st.text_input("Nº Bloco*", value=None, placeholder="Ex: 1234")
                         f_material = st.text_input("Material*", value=None, placeholder="Ex: ALPINUS")
                     with c_p2:
@@ -545,8 +545,8 @@ with tab_apontamento:
                     c_t1, c_t2, c_t3, c_t4 = st.columns(4)
                     with c_t1: f_dia_ini = st.date_input("Dia Início", value=None, format="DD/MM/YYYY")
                     with c_t2: f_dia_fim = st.date_input("Dia Fim", value=None, format="DD/MM/YYYY")
-                    with c_t3: f_hora_ini = st.time_input("Hora Início", value=None)
-                    with c_t4: f_hora_fim = st.time_input("Hora Fim", value=None)
+                    with c_t3: f_hora_ini_str = st.text_input("Hora Início", value="", placeholder="Ex: 1040")
+                    with c_t4: f_hora_fim_str = st.text_input("Hora Fim", value="", placeholder="Ex: 1530")
 
                     st.markdown("#### Insumos Específicos")
                     extra_data = {}
@@ -589,6 +589,26 @@ with tab_apontamento:
                         if not f_data or not f_bloco or not f_material or not f_setor or f_qtd_ch is None:
                             st.error("Por favor, preencha todos os campos obrigatórios (*).")
                         else:
+                            # Parse custom time format (e.g. 1040 -> 10:40)
+                            def parse_time(t_str):
+                                if not t_str: return None
+                                import re
+                                from datetime import time
+                                t = re.sub(r'\D', '', t_str)
+                                if len(t) == 1: t = "0" + t + "00"
+                                elif len(t) == 2: t = t + "00"
+                                elif len(t) == 3: t = "0" + t
+                                elif len(t) > 4: t = t[:4]
+                                
+                                if len(t) == 4:
+                                    h, m = int(t[:2]), int(t[2:])
+                                    if 0 <= h <= 23 and 0 <= m <= 59:
+                                        return time(h, m)
+                                return None
+                            
+                            f_hora_ini = parse_time(f_hora_ini_str)
+                            f_hora_fim = parse_time(f_hora_fim_str)
+
                             # Cálculo do tempo de processo
                             tempo_proc = ""
                             if f_hora_ini and f_hora_fim and f_dia_ini and f_dia_fim:
