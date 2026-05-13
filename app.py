@@ -558,12 +558,13 @@ with tab_apontamento:
                         with c_i2: extra_data["VEL_TRAVE"] = st.text_input("Vel. Trave", value=None)
                         
                         with st.expander("🛠️ Sequência de Abrasivos (1 a 20)", expanded=False):
-                            cols_abr = st.columns(4)
-                            for i in range(1, 21):
-                                col_idx = (i - 1) % 4
-                                val_abr = cols_abr[col_idx].text_input(f"Seq. Abr. {i}", value=None, key=f"abr_{i}")
-                                if val_abr:
-                                    extra_data[f"Seq. Abr. {i}"] = val_abr
+                            for r in range(5):
+                                cols_abr = st.columns(4)
+                                for c in range(4):
+                                    i = r * 4 + c + 1
+                                    val_abr = cols_abr[c].text_input(f"Seq. Abr. {i}", value=None, key=f"abr_{i}")
+                                    if val_abr:
+                                        extra_data[f"Seq. Abr. {i}"] = val_abr
                     
                     elif f_tipo == "Resinagem / Tela / Manta / Estuque":
                         c_i1, c_i2, c_i3 = st.columns(3)
@@ -575,7 +576,7 @@ with tab_apontamento:
                             extra_data["TIPO_ENDUR"] = st.text_input("Tipo Endurecedor", value=None)
                         with c_i3:
                             extra_data["QTD_KG3"] = st.number_input("Qtd KG (Endurecedor)", min_value=0.0, step=0.1, value=None)
-                            extra_data["V_24H"] = st.text_input("24H", value=None)
+                            extra_data["V_24H"] = st.text_input("Tempo de Secagem", value=None)
                     
                     elif f_tipo == "Retoque":
                         c_i1, c_i2 = st.columns(2)

@@ -612,7 +612,7 @@ def add_apontamento(record_dict):
             "QTD_KG": ["QTD.KG", "QTD KG", "QTD_KG"],
             "TIPO_ENDUR": ["TIPO.ENDUR", "TIPO ENDURECEDOR", "TIPO_ENDUR"],
             "QTD_KG3": ["QTD.KG3", "QTD KG3", "QTD_KG3"],
-            "V_24H": ["24H", "24 H", "V_24H"],
+            "V_24H": ["TEMPO DE SECAGEM", "TEMPO SECAGEM", "24H", "24 H", "V_24H"],
             "VEL_ESTEIRA": ["VEL.ESTEIRA", "VEL ESTEIRA", "VEL_ESTEIRA"],
             "VEL_TRAVE": ["VEL.TRAVE", "VEL TRAVE", "VEL_TRAVE"]
         }
