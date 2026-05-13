@@ -978,24 +978,59 @@ with tab_config:
 
     cfg_atual = dm.get_config()
 
+    # Função auxiliar para abrir dialog do Windows
+    def gui_select_file(current_path, is_excel=True):
+        import tkinter as tk
+        from tkinter import filedialog
+        import os
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            root.wm_attributes('-topmost', 1)
+            init_dir = os.path.dirname(current_path) if current_path and os.path.exists(current_path) else "."
+            types = [("Excel files", "*.xlsx *.xlsm *.xls"), ("All files", "*.*")] if is_excel else [("All files", "*.*")]
+            
+            file_path = filedialog.askopenfilename(
+                initialdir=init_dir,
+                title="Selecione o Arquivo",
+                filetypes=types
+            )
+            root.destroy()
+            return file_path.replace("/", "\\") if file_path else ""
+        except Exception as e:
+            return ""
+
     # --- Arquivo de Programação ---
     st.markdown("#### 📊 Arquivo de Programação (`.xlsm`)")
-    col_p1, col_p2 = st.columns([3, 1])
+    
+    # Inicializa session_state para manter valor digitado ou selecionado
+    if "tmp_db_path" not in st.session_state:
+        st.session_state["tmp_db_path"] = cfg_atual.get("DB_FILE", "")
+
+    col_p1, col_p2, col_p3 = st.columns([3, 1, 1])
     with col_p1:
         novo_db = st.text_input(
             "Caminho completo",
-            value=cfg_atual.get("DB_FILE", ""),
-            key="cfg_db_path",
+            value=st.session_state["tmp_db_path"],
+            key="cfg_db_path_input",
             label_visibility="collapsed",
             placeholder="Ex: z:\\PCP\\DB.xlsm"
         )
+        if novo_db != st.session_state["tmp_db_path"]:
+            st.session_state["tmp_db_path"] = novo_db
     with col_p2:
+        if st.button("🔍 Buscar...", key="btn_busc_db"):
+            selecionado = gui_select_file(st.session_state["tmp_db_path"])
+            if selecionado:
+                st.session_state["tmp_db_path"] = selecionado
+                st.rerun()
+    with col_p3:
         import os as _osc
-        existe_db_live = _osc.path.exists(novo_db)
-        st.markdown(f"{'🟢 OK' if existe_db_live else '🔴 Não encontrado'}", unsafe_allow_html=True)
+        existe_db_live = _osc.path.exists(st.session_state["tmp_db_path"])
+        st.markdown(f"<div style='margin-top: 5px;'>{'🟢 OK' if existe_db_live else '🔴 Não encontrado'}</div>", unsafe_allow_html=True)
 
     if existe_db_live:
-        abas_db = dm.get_sheet_names(novo_db)
+        abas_db = dm.get_sheet_names(st.session_state["tmp_db_path"])
         col_s1, col_s2, col_s3 = st.columns(3)
         with col_s1:
             idx_prog = abas_db.index(cfg_atual.get("SHEET_PROGRAMACAO", "")) if cfg_atual.get("SHEET_PROGRAMACAO","") in abas_db else 0
@@ -1017,21 +1052,33 @@ with tab_config:
 
     # --- Arquivo de Apontamento ---
     st.markdown("#### ✅ Arquivo de Apontamento (`.xlsx`)")
-    col_a1, col_a2 = st.columns([3, 1])
+    
+    if "tmp_ap_path" not in st.session_state:
+        st.session_state["tmp_ap_path"] = cfg_atual.get("APONTAMENTO_FILE", "")
+
+    col_a1, col_a2, col_a3 = st.columns([3, 1, 1])
     with col_a1:
         novo_ap = st.text_input(
             "Caminho completo",
-            value=cfg_atual.get("APONTAMENTO_FILE", ""),
-            key="cfg_ap_path",
+            value=st.session_state["tmp_ap_path"],
+            key="cfg_ap_path_input",
             label_visibility="collapsed",
             placeholder="Ex: z:\\PCP\\DB.xlsx"
         )
+        if novo_ap != st.session_state["tmp_ap_path"]:
+            st.session_state["tmp_ap_path"] = novo_ap
     with col_a2:
-        existe_ap_live = _osc.path.exists(novo_ap)
-        st.markdown(f"{'🟢 OK' if existe_ap_live else '🔴 Não encontrado'}", unsafe_allow_html=True)
+        if st.button("🔍 Buscar...", key="btn_busc_ap"):
+            selecionado = gui_select_file(st.session_state["tmp_ap_path"])
+            if selecionado:
+                st.session_state["tmp_ap_path"] = selecionado
+                st.rerun()
+    with col_a3:
+        existe_ap_live = _osc.path.exists(st.session_state["tmp_ap_path"])
+        st.markdown(f"<div style='margin-top: 5px;'>{'🟢 OK' if existe_ap_live else '🔴 Não encontrado'}</div>", unsafe_allow_html=True)
 
     if existe_ap_live:
-        abas_ap = dm.get_sheet_names(novo_ap)
+        abas_ap = dm.get_sheet_names(st.session_state["tmp_ap_path"])
         col_sa1, col_sa2 = st.columns(2)
         with col_sa1:
             idx_ap_bd = abas_ap.index(cfg_atual.get("SHEET_AP_BD", "")) if cfg_atual.get("SHEET_AP_BD","") in abas_ap else 0
