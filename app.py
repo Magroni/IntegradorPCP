@@ -519,7 +519,7 @@ with tab_apontamento:
             f_processo = st.selectbox("2. Processo Específico*", [""] + opcoes_proc_padrao, key="ap_f_proc")
             
             if f_processo:
-                with st.form("form_novo_apontamento_dyn", clear_on_submit=True):
+                with st.form("form_novo_apontamento_dyn", clear_on_submit=True, enter_to_submit=False):
                     st.markdown("#### Dados Principais")
                     c_p1, c_p2, c_p3, c_p4 = st.columns(4)
                     with c_p1:
