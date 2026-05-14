@@ -1,5 +1,5 @@
 # AGENT_CONTEXT.md — Contexto do Projeto PCP Costa Granitos
-> **Atualizado em:** 2026-05-12  
+> **Atualizado em:** 2026-05-14 (v3)  
 > **Propósito:** Arquivo de contexto para agentes de IA. Leia este arquivo antes de qualquer alteração no projeto.
 
 ---
@@ -21,14 +21,12 @@ Sistema web de **PCP (Planejamento e Controle da Produção)** para a **Costa Gr
 
 ```
 ProgramarProd/
-├── app.py                  # Aplicação principal Streamlit (6 abas)
-├── data_manager.py         # Toda lógica de leitura/escrita nas planilhas Excel
-├── export_manager.py       # (LEGADO) Gerador de Excel para exportação — não mais usado pela app
-├── config.json             # Caminhos das bases de dados (editável pelo usuário na UI)
-├── requirements.txt        # Dependências Python
-├── run_app.bat             # Script para iniciar o app
-├── AGENT_CONTEXT.md        # Este arquivo
-└── analise_apontamento.py  # Script temporário de análise (pode ser ignorado/deletado)
+├── app.py                  # Aplicação principal Streamlit (Arquitetura Híbrida: Form + Live)
+├── data_manager.py         # Lógica de dados, mapeamentos e suporte a Insumos/Paradas
+├── config.json             # Configurações de caminhos e abas (Novo: SHEET_AP_INSUMOS)
+├── run_app.bat             # Atalho para execução
+├── AGENT_CONTEXT.md        # Guia de contexto do projeto (Manter atualizado!)
+└── README.md               # Instruções gerais
 ```
 
 ---
@@ -69,7 +67,9 @@ Planilha mantida pelo operador. O sistema a lê em **modo somente leitura**.
 | Aba | Uso |
 |-----|-----|
 | `BD` | Registros de produção diária (cabeçalho na linha 7) |
-| `BASE DADOS` | Mapeamento PROCESSO_COMPLETO → RESUMIDO (ex: "19-POLIMENTO (S)" → "POLIMENTO") |
+| `BASE DADOS` | Mapeamento PROCESSO_COMPLETO → RESUMIDO |
+| `PARADAS` | Ocorrências de máquinas (ID, MOTIVO, DIA_INICIO, HORA_INICIO, DIA_FIM, HORA_FIM, TEMPO) |
+| `INSUMOS` | Detalhamento (ID, TIPO, DESCRICAO, QTD, UNID, TEMPO_SECAGEM, CABECAS, INSUMO_DETALHE) |
 
 #### Colunas relevantes da aba BD:
 - `DATA REG` — data do apontamento
@@ -91,7 +91,8 @@ Planilha mantida pelo operador. O sistema a lê em **modo somente leitura**.
 | 3 | 🗓️ Janela de Programações | Painel duplo: Fila de Trabalho (esquerda) + Painel de Alocação (direita). Agendamento em lote. |
 | 4 | ✅ Apontamento | Cruzamento Programação × Apontamento. Indicador de aderência. Confirmação de REALIZADOS. |
 | 5 | 🖨️ Exportação | Relatório HTML gerado em tela, pronto para Ctrl+P. |
-| 6 | ⚙️ Opções Gerais | Configuração de caminhos dos arquivos + mapeamento Processo×Máquina. |
+| 6 | 📈 Análises e Indicadores | Dashboard de performance (M², Chapas, Turnos, Máquinas e Refeito). |
+| 7 | ⚙️ Opções Gerais | Configuração de caminhos dos arquivos + mapeamento Processo×Máquina. |
 
 ---
 
@@ -167,8 +168,21 @@ O arquivo `config.json` na raiz do projeto controla os caminhos:
 
 ## 8. Histórico de Mudanças
 
-| Data | Mudança |
-|------|--------|
+| Data | Alteração |
+|------|-----------|
+| 2026-05-14 | **Indicadores (Aba 6)**: Dashboard de produção diária, por turno, máquina e análise de Refeito |
+| 2026-05-14 | **Resinagem Manual**: Substituída lista fixa por entrada manual de nome, catalisador e proporção |
+| 2026-05-14 | **Validação Estrita**: Paradas agora devem estar contidas no intervalo do processo |
+| 2026-05-14 | **Base Granular**: Novas colunas `CABECAS`, `INSUMO_DETALHE`, `DIA_INICIO` e `DIA_FIM` no banco |
+| 2026-05-14 | **Carrinho Auto-Reset**: Limpeza automática e recarregamento após salvar no Excel |
+| 2026-05-13 | **Formulário Híbrido**: Separação em Dados Básicos (Form) + Insumos/Paradas (Live) |
+| 2026-05-13 | **Upgrade REV 2**: Migração para nova estrutura de planilha de apontamento |
+| 2026-05-13 | **Mapeamento Centralizado**: Refatoração do `data_manager` para suportar aliases de colunas |
+| 2026-05-13 | **Validação de Tempos**: Bloqueio de horas inválidas e tempos negativos |
+| 2026-05-13 | **Turno Automático**: Cálculo de turno D/N baseado na hora de início |
+| 2026-05-13 | **Endurentes (LISTAS)**: Integração com tabela de proporções e tempo de secagem |
+| 2026-05-13 | **Excel Pro**: Expansão automática de Tabelas (ListObjects) e cópia de estilos/bordas |
+| 2026-05-13 | **Histórico Dinâmico**: Detecção de cabeçalhos variável para busca de histórico |
 | 2026-05-12 | Arquivos renomeados para `DB.xlsm` e `DB.xlsx`; config.json e data_manager.py atualizados |
 | 2026-05-12 | data_manager.py reescrito do zero para corrigir encoding corrompido pelo PowerShell |
 | 2026-05-12 | Criação do arquivo AGENT_CONTEXT.md |

@@ -11,13 +11,17 @@ _CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.
 
 _DEFAULT_CONFIG = {
     "DB_FILE": r"z:\PCP\PROJETOS MARLON\ProgramarProd\COSTA GRAN. - PROGRAMAÇÕES - BASE DE DADOS.xlsm",
-    "APONTAMENTO_FILE": r"z:\PCP\PROJETOS MARLON\ProgramarProd\Apontamento Produção (REV 1).xlsx",
+    "APONTAMENTO_FILE": r"z:\PCP\PROJETOS MARLON\ProgramarProd\Apontamento Produção (REV 2).xlsx",
     # Nomes das abas (configuráveis pelo usuário)
     "SHEET_PROGRAMACAO": "DB",
     "SHEET_ENTREGUES": "ENTREGUES",
     "SHEET_BASE_DADOS": "BASE DE DADOS",
     "SHEET_AP_BD": "DB",
-    "SHEET_AP_BASE": "BASE DADOS"
+    "SHEET_AP_BASE": "BASE DADOS",
+    "SHEET_AP_PARADAS": "PARADAS",
+    "SHEET_AP_INSUMOS": "INSUMOS",
+    "BLOCKS_FILE": r"z:\PCP\PROJETOS MARLON\ProgramarProd\PLANILHA BLOCOS.xlsb",
+    "CHAPAS_FILE": r"z:\PCP\PROJETOS MARLON\ProgramarProd\Estoque Chapas 2026.xlsx"
 }
 
 
@@ -71,10 +75,6 @@ def get_sheet_names(filepath: str):
         print(f"Erro ao ler abas de {filepath}: {e}")
         return []
 
-
-# Mantém compatibilidade com código que usa as constantes diretamente
-DB_FILE = _get_db_file()
-APONTAMENTO_FILE = _get_apontamento_file()
 
 # ---------------------------------------------------------------------------
 # LEITURA DE DADOS
@@ -587,35 +587,9 @@ def add_apontamento(record_dict):
                 break
         
         # Mapeamento de campos fixos do sistema para nomes prováveis no Excel
-        system_mapping = {
-            "DATA_REG": ["DATA REG", "DATA", "DATA_REG"],
-            "MAT_BLOCO": ["MATERIAL+BLOCO", "MAT+BLO", "MATERIAL BLOCO"],
-            "NOME_MATERIAL": ["NOME MATERIAL", "MATERIAL", "NOME_MATERIAL"],
-            "BLOCO_RAW": ["NUMERO DO BLOCO", "Nº BLOCO", "NUM BLOCO", "BLOCO", "N BLOCO"],
-            "PROCESSO_APONTADO": ["PROCESSO", "PROC", "PROCESSO_APONTADO"],
-            "SETOR_AP": ["SETOR", "MAQUINA", "MÁQUINA", "SETOR_AP"],
-            "QTD_CH": ["QTD. CHAPAS", "QTD CH (SEM RET & REPASSE)", "QTD CH", "CHAPAS", "QTD_CH"],
-            "QTD_M2": ["QTD M² (SEM RET & REPASSE)", "QTD M²", "QTD M2", "METRAGEM", "QTD M", "QTD M"],
-            "ESP": ["ESP.", "ESPESSURA", "ESP"],
-            "COMP": ["COMP.", "COMPRIMENTO", "COMP"],
-            "ALT": ["ALT.", "ALTURA", "ALT"],
-            "OPERADOR": ["OPERADOR"],
-            "DUREZA": ["DUREZA"],
-            "DIA_INICIO": ["DIA INICIO", "DIA_INICIO"],
-            "DIA_FIM": ["DIA FIM", "DIA_FIM"],
-            "HORA_INICIO": ["HORA INICIO", "HORA_INICIO"],
-            "HORA_FIM": ["HORA FIM", "HORA_FIM"],
-            "TEMPO_PROCESSO": ["TEMPO DO PROCESSO", "TEMPO", "TEMPO_PROCESSO"],
-            "TURNO": ["TURNO"],
-            "TIPO_ACIDO": ["TIPO ACIDO", "TIPO_ACIDO"],
-            "TIPO_RESINA": ["TPO RESINA", "TIPO RESINA", "TIPO_RESINA"],
-            "QTD_KG": ["QTD.KG", "QTD KG", "QTD_KG"],
-            "TIPO_ENDUR": ["TIPO.ENDUR", "TIPO ENDURECEDOR", "TIPO_ENDUR"],
-            "QTD_KG3": ["QTD.KG3", "QTD KG3", "QTD_KG3"],
-            "V_24H": ["TEMPO DE SECAGEM", "TEMPO SECAGEM", "24H", "24 H", "V_24H"],
-            "VEL_ESTEIRA": ["VEL.ESTEIRA", "VEL ESTEIRA", "VEL_ESTEIRA"],
-            "VEL_TRAVE": ["VEL.TRAVE", "VEL TRAVE", "VEL_TRAVE"]
-        }
+        system_mapping = _get_system_mapping()
+
+        # 1. Primeiro grava os campos mapeados pelo sistema
 
         # 1. Primeiro grava os campos mapeados pelo sistema
         for key, value in record_dict.items():
@@ -640,3 +614,435 @@ def add_apontamento(record_dict):
     except Exception as e:
         print(f"Erro ao adicionar apontamento: {e}")
         return False
+
+
+def _get_system_mapping():
+    """Retorna o mapeamento centralizado de campos para colunas Excel."""
+    mapping = {
+        "DATA_REG": ["DATA REG", "DATA", "DATA_REG"],
+        "MAT_BLOCO": ["MATERIAL+BLOCO", "MAT+BLO", "MATERIAL BLOCO"],
+        "NOME_MATERIAL": ["NOME MATERIAL", "MATERIAL", "NOME_MATERIAL"],
+        "BLOCO_RAW": ["NUMERO DO BLOCO", "Nº BLOCO", "NUM BLOCO", "BLOCO", "N BLOCO", "NUMERO_BLOCO"],
+        "PROCESSO_APONTADO": ["PROCESSO", "PROC", "PROCESSO_APONTADO"],
+        "SETOR_AP": ["SETOR", "MAQUINA", "MÁQUINA", "SETOR_AP"],
+        "QTD_CH": ["QTD. CHAPAS", "QTD CH (SEM RET & REPASSE)", "QTD CH", "CHAPAS", "QTD_CH", "QTD_CHAPAS"],
+        "QTD_M2": ["QTD M² (SEM RET & REPASSE)", "QTD M²", "QTD M2", "METRAGEM", "QTD M", "QTDM2"],
+        "ESP": ["ESP.", "ESPESSURA", "ESP"],
+        "COMP": ["COMP.", "COMPRIMENTO", "COMP"],
+        "ALT": ["ALT.", "ALTURA", "ALT"],
+        "OPERADOR": ["OPERADOR"],
+        "DUREZA": ["DUREZA"],
+        "DIA_INICIO": ["DIA INICIO", "DIA_INICIO", "DATA_INICIO"],
+        "DIA_FIM": ["DIA FIM", "DIA_FIM", "DATA_FIM"],
+        "HORA_INICIO": ["HORA INICIO", "HORA_INICIO"],
+        "HORA_FIM": ["HORA FIM", "HORA_FIM"],
+        "TEMPO_PROCESSO": ["TEMPO DO PROCESSO", "TEMPO", "TEMPO_PROCESSO"],
+        "TURNO": ["TURNO"],
+        "TIPO_ACIDO": ["TIPO ACIDO", "TIPO_ACIDO"],
+        "TIPO_RESINA": ["TPO RESINA", "TIPO RESINA", "TIPO_RESINA", "TIPO_RES"],
+        "QTD_KG": ["QTD.KG", "QTD KG", "QTD_KG", "QTDKG_RES"],
+        "TIPO_ENDUR": ["TIPO.ENDUR", "TIPO ENDURECEDOR", "TIPO_ENDUR"],
+        "QTD_KG3": ["QTD.KG3", "QTD KG3", "QTD_KG3", "QDKG_ENDUR"],
+        "V_24H": ["TEMPO DE SECAGEM", "TEMPO SECAGEM", "24H", "24 H", "V_24H", "TEMPO_SECAGEM"],
+        "VEL_ESTEIRA": ["VEL.ESTEIRA", "VEL ESTEIRA", "VEL_ESTEIRA"],
+        "VEL_TRAVE": ["VEL.TRAVE", "VEL TRAVE", "VEL_TRAVE"],
+        "TIPO_MANTA": ["TIPO MANTA", "TIPO_MANTA"],
+        "QTD_MANTA": ["QTD MANTA", "QTD_MANTA"],
+        "ID": ["ID", "Nº ID", "ID_APONTAMENTO"]
+    }
+    # Adiciona mapeamento de abrasivos SAT1 a SAT20
+    for i in range(1, 21):
+        mapping[f"Seq. Abr. {i}"] = [f"SAT{i}", f"SEQ. ABR. {i}", f"ABRASIVO {i}"]
+    return mapping
+
+
+def get_next_apontamento_id():
+    """
+    Lê a aba DB do Apontamento e retorna o próximo ID sequencial.
+    """
+    try:
+        file_path = _get_apontamento_file()
+        sheet_name = _get_sheet("SHEET_AP_BD")
+        
+        # Lê apenas a coluna ID se possível, ou as primeiras linhas
+        df = pd.read_excel(file_path, sheet_name=sheet_name, header=None, nrows=100)
+        
+        # Localiza o cabeçalho
+        header_row = 6
+        for i, row in df.iterrows():
+            if "ID" in [str(v).strip().upper() for v in row.values]:
+                header_row = i
+                break
+        
+        # Lê a coluna ID a partir do cabeçalho
+        df_full = pd.read_excel(file_path, sheet_name=sheet_name, skiprows=header_row, engine="openpyxl")
+        df_full.columns = [str(c).strip().upper() for c in df_full.columns]
+        
+        if "ID" in df_full.columns:
+            ids = pd.to_numeric(df_full["ID"], errors="coerce").dropna()
+            if not ids.empty:
+                return int(ids.max() + 1)
+        return 1
+    except Exception as e:
+        print(f"Erro ao gerar novo ID: {e}")
+        return 1
+
+
+def add_paradas(paradas_list):
+    """
+    Adiciona registros de paradas na aba 'PARADAS'.
+    """
+    try:
+        file_path = _get_apontamento_file()
+        sheet_name = _get_sheet("SHEET_AP_PARADAS")
+        wb = openpyxl.load_workbook(file_path)
+        
+        if sheet_name not in wb.sheetnames:
+            # Cria a aba se não existir
+            ws = wb.create_sheet(sheet_name)
+            headers = ["ID_APONTAMENTO", "MOTIVO", "HORA_INICIO", "HORA_FIM", "TEMPO"]
+            for c, h in enumerate(headers, 1):
+                ws.cell(row=1, column=c, value=h)
+        else:
+            ws = wb[sheet_name]
+
+        # Mapeia cabeçalhos existentes
+        headers_map = {}
+        for c in range(1, ws.max_column + 1):
+            val = ws.cell(row=1, column=c).value
+            if val:
+                headers_map[str(val).strip().upper()] = c
+
+        next_row = ws.max_row + 1
+        for parada in paradas_list:
+            for key, val in parada.items():
+                col_name = key.upper()
+                if col_name in headers_map:
+                    ws.cell(row=next_row, column=headers_map[col_name], value=val)
+            next_row += 1
+
+        wb.save(file_path)
+        return True
+    except Exception as e:
+        print(f"Erro ao adicionar paradas: {e}")
+        return False
+
+
+def add_apontamento_full(record_dict, paradas_list=None):
+    """
+    Gera ID, grava apontamento e paradas.
+    """
+    new_id = get_next_apontamento_id()
+    record_dict["ID"] = new_id
+    
+    if add_apontamento(record_dict):
+        if paradas_list:
+            for p in paradas_list:
+                p["ID_APONTAMENTO"] = new_id
+            add_paradas(paradas_list)
+        return True, new_id
+    return False, None
+
+
+def add_apontamento_batch(batch_list):
+    """
+    Grava uma lista de (record_dict, paradas_list) de uma só vez no Excel.
+    batch_list: lista de tuplas [(record, paradas), ...]
+    """
+    try:
+        file_path = _get_apontamento_file()
+        sheet_bd = _get_sheet("SHEET_AP_BD")
+        sheet_paradas = _get_sheet("SHEET_AP_PARADAS")
+        
+        wb = openpyxl.load_workbook(file_path)
+        ws_bd = wb[sheet_bd]
+        
+        # 1. Prepara cabeçalhos e próxima linha da aba DB
+        header_row_idx = 6
+        for r in range(1, 21):
+            row_vals = [str(ws_bd.cell(row=r, column=c).value).strip().upper() for c in range(1, ws_bd.max_column + 1)]
+            if "PROCESSO" in row_vals or "DATA REG" in row_vals or "MATERIAL+BLOCO" in row_vals:
+                header_row_idx = r
+                break
+        
+        headers_bd = {}
+        for c in range(1, ws_bd.max_column + 1):
+            val = ws_bd.cell(row=header_row_idx, column=c).value
+            if val:
+                headers_bd[str(val).strip().upper()] = c
+
+        system_mapping = _get_system_mapping()
+
+        col_ref = headers_bd.get("DATA REG") or headers_bd.get("PROCESSO") or 1
+
+        col_ref = headers_bd.get("DATA REG") or headers_bd.get("PROCESSO") or 1
+        next_row_bd = ws_bd.max_row + 1
+        for r in range(header_row_idx + 1, ws_bd.max_row + 2):
+            if ws_bd.cell(row=r, column=col_ref).value is None:
+                next_row_bd = r
+                break
+
+        # 2. Prepara aba PARADAS
+        if sheet_paradas not in wb.sheetnames:
+            ws_p = wb.create_sheet(sheet_paradas)
+            headers_p_list = ["ID_APONTAMENTO", "MOTIVO", "DIA_INICIO", "HORA_INICIO", "DIA_FIM", "HORA_FIM", "TEMPO"]
+            for c, h in enumerate(headers_p_list, 1):
+                ws_p.cell(row=1, column=c, value=h)
+        else:
+            ws_p = wb[sheet_paradas]
+
+        headers_p = {}
+        for c in range(1, ws_p.max_column + 1):
+            val = ws_p.cell(row=1, column=c).value
+            if val:
+                headers_p[str(val).strip().upper()] = c
+
+        next_row_p = ws_p.max_row + 1
+
+        # Prepara aba INSUMOS
+        sheet_insumos_name = _get_sheet("SHEET_AP_INSUMOS")
+        if sheet_insumos_name not in wb.sheetnames:
+            ws_i = wb.create_sheet(sheet_insumos_name)
+            headers_i_list = ["ID_APONTAMENTO", "TIPO_INSUMO", "DESCRICAO", "QUANTIDADE", "UNIDADE", "TEMPO_SECAGEM", "CABECAS", "INSUMO_DETALHE"]
+            for c, h in enumerate(headers_i_list, 1):
+                ws_i.cell(row=1, column=c, value=h)
+        else:
+            ws_i = wb[sheet_insumos_name]
+
+        headers_i = {}
+        for c in range(1, ws_i.max_column + 1):
+            val = ws_i.cell(row=1, column=c).value
+            if val:
+                headers_i[str(val).strip().upper()] = c
+
+        next_row_i = ws_i.max_row + 1
+
+        # 3. Itera sobre o batch e grava
+        for record, paradas, insumos in batch_list:
+            # Grava record no DB
+            for key, value in record.items():
+                target_col = None
+                if key in system_mapping:
+                    for alias in system_mapping[key]:
+                        if alias.upper() in headers_bd:
+                            target_col = alias.upper()
+                            break
+                if not target_col and key.upper() in headers_bd:
+                    target_col = key.upper()
+                
+                if target_col:
+                    ws_bd.cell(row=next_row_bd, column=headers_bd[target_col], value=value)
+            
+            # Grava paradas
+            if paradas:
+                for p in paradas:
+                    p["ID_APONTAMENTO"] = record.get("ID")
+                    for key, value in p.items():
+                        target_col = None
+                        if key in system_mapping:
+                            for alias in system_mapping[key]:
+                                if alias.upper() in headers_p:
+                                    target_col = alias.upper()
+                                    break
+                        if not target_col and key.upper() in headers_p:
+                            target_col = key.upper()
+                        
+                        if target_col:
+                            ws_p.cell(row=next_row_p, column=headers_p[target_col], value=value)
+                    next_row_p += 1
+
+            # Grava insumos
+            if insumos:
+                for i_data in insumos:
+                    i_data["ID_APONTAMENTO"] = record.get("ID")
+                    for key, value in i_data.items():
+                        target_col = None
+                        if key in system_mapping:
+                            for alias in system_mapping[key]:
+                                if alias.upper() in headers_i:
+                                    target_col = alias.upper()
+                                    break
+                        if not target_col and key.upper() in headers_i:
+                            target_col = key.upper()
+                        
+                        if target_col:
+                            ws_i.cell(row=next_row_i, column=headers_i[target_col], value=value)
+                    next_row_i += 1
+            
+            next_row_bd += 1
+
+        # 4. Tenta expandir Tabela do Excel (ListObject) se existir
+        try:
+            if ws_bd.tables:
+                for table_name, table in ws_bd.tables.items():
+                    current_ref = table.ref # ex: "A1:T18881"
+                    parts = current_ref.split(":")
+                    if len(parts) == 2:
+                        start_cell = parts[0]
+                        import re
+                        col_part = re.sub(r'\d+', '', parts[1])
+                        new_ref = f"{start_cell}:{col_part}{next_row_bd - 1}"
+                        table.ref = new_ref
+        except: pass
+
+        # 5. Copia estilos da linha anterior para as novas linhas
+        try:
+            prev_row_idx = next_row_bd - len(batch_list) - 1
+            if prev_row_idx > header_row_idx:
+                from copy import copy
+                for r_idx in range(next_row_bd - len(batch_list), next_row_bd):
+                    for c_idx in range(1, ws_bd.max_column + 1):
+                        source_cell = ws_bd.cell(row=prev_row_idx, column=c_idx)
+                        target_cell = ws_bd.cell(row=r_idx, column=c_idx)
+                        if source_cell.has_style:
+                            target_cell.font = copy(source_cell.font)
+                            target_cell.border = copy(source_cell.border)
+                            target_cell.fill = copy(source_cell.fill)
+                            target_cell.number_format = copy(source_cell.number_format)
+                            target_cell.protection = copy(source_cell.protection)
+                            target_cell.alignment = copy(source_cell.alignment)
+        except: pass
+
+        wb.save(file_path)
+        return True, f"{len(batch_list)} registros salvos."
+    except Exception as e:
+        import traceback
+        error_msg = f"Erro no salvamento em lote: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        return False, str(e)
+
+
+def get_apontamentos_por_bloco(bloco_id):
+    """
+    Busca o histórico de processos já realizados para um bloco específico.
+    """
+    try:
+        file_path = _get_apontamento_file()
+        sheet_name = _get_sheet("SHEET_AP_BD")
+        
+        # Lê as primeiras 20 linhas para encontrar o cabeçalho dinamicamente
+        df_scan = pd.read_excel(file_path, sheet_name=sheet_name, header=None, nrows=20, engine="openpyxl")
+        header_row_idx = 0
+        for i, row in df_scan.iterrows():
+            row_vals = [str(v).strip().upper() for v in row.values]
+            if "PROCESSO" in row_vals or "DATA REG" in row_vals or "DATA_REG" in row_vals or "NUMERO_BLOCO" in row_vals:
+                header_row_idx = i
+                break
+        
+        # Agora lê os dados de verdade a partir do cabeçalho encontrado
+        df = pd.read_excel(file_path, sheet_name=sheet_name, header=header_row_idx, engine="openpyxl")
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        
+        # Mapeia qual coluna é o bloco usando o sistema de mapping robusto
+        mapping = _get_system_mapping()
+        col_bloco = None
+        for alias in mapping.get("BLOCO_RAW", []):
+            if alias.upper() in df.columns:
+                col_bloco = alias.upper()
+                break
+        
+        if not col_bloco:
+            return pd.DataFrame()
+            
+        # Filtra o bloco
+        df[col_bloco] = df[col_bloco].astype(str).str.strip().str.split(".").str[0].str.upper()
+        historico = df[df[col_bloco] == str(bloco_id).strip().upper()].copy()
+        
+        # Seleciona colunas úteis para o histórico (mapeando para o que existir no REV 2)
+        res_cols = []
+        wanted = ["DATA_REG", "PROCESSO_APONTADO", "SETOR_AP", "QTD_CH", "QTD_M2", "OPERADOR", "HORA_INICIO", "HORA_FIM"]
+        for w in wanted:
+            for alias in mapping.get(w, []):
+                if alias.upper() in historico.columns:
+                    res_cols.append(alias.upper())
+                    break
+        
+        if not res_cols: return pd.DataFrame()
+        return historico[res_cols].sort_values(by=res_cols[0], ascending=False)
+        
+    except Exception as e:
+        print(f"Erro ao buscar histórico do bloco: {e}")
+        return pd.DataFrame()
+
+
+def get_bloco_info(bloco_id):
+    """
+    Busca informações de material e medidas na PLANILHA BLOCOS.xlsb.
+    Retorna dict com MATERIAL, COMP_LIQUIDO, ALT_LIQUIDO, LARG_LIQUIDO ou None.
+    """
+    try:
+        cfg = get_config()
+        path = cfg.get("BLOCKS_FILE")
+        if not path or not os.path.exists(path):
+            return None
+
+        # Lê apenas as colunas necessárias para performance
+        # Header está na linha 9 (skiprows=8)
+        df = pd.read_excel(path, engine="pyxlsb", sheet_name="PLAN. BLOCOS", skiprows=8)
+        
+        # Normaliza nomes de colunas
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        
+        # Busca o bloco (converte para string e remove .0)
+        bloco_busca = str(bloco_id).strip().split(".")[0].upper()
+        df["N_BLOCO_STR"] = df["N_BLOCO"].astype(str).str.strip().str.split(".").str[0].str.upper()
+        
+        match = df[df["N_BLOCO_STR"] == bloco_busca]
+        if not match.empty:
+            row = match.iloc[0]
+            return {
+                "MATERIAL": str(row.get("MATERIAL", "")).strip().upper(),
+                "COMP": float(row.get("COMP_LIQUIDO", 0)),
+                "ALT": float(row.get("ALT_LIQUIDO", 0)),
+                "LARG": float(row.get("LARG_LIQUIDO", 0)),
+                "SOURCE": "Planilha de Blocos"
+            }
+    except Exception as e:
+        print(f"Erro ao buscar na PLANILHA BLOCOS: {e}")
+
+    # --- FONTE 2: ESTOQUE DE CHAPAS (ENTRADAS) ---
+    try:
+        cfg = get_config()
+        path = cfg.get("CHAPAS_FILE")
+        if path and os.path.exists(path):
+            df_ch = pd.read_excel(path, sheet_name="ENTRADAS", engine="openpyxl")
+            # Normaliza nomes de colunas
+            df_ch.columns = [str(c).strip().upper() for c in df_ch.columns]
+            
+            # Mapeamento flexível de colunas
+            col_bloco = next((c for c in ["BLOCO", "Nº BLOCO", "N_BLOCO", "NUMERO DO BLOCO", "MAT+BLO"] if c in df_ch.columns), None)
+            col_mat = next((c for c in ["MATERIAL", "NOME MATERIAL", "NOME_MATERIAL"] if c in df_ch.columns), None)
+            col_comp = next((c for c in ["COMP", "COMP.", "COMPRIMENTO", "C", "COMP_LIQUIDO"] if c in df_ch.columns), None)
+            col_alt = next((c for c in ["ALT", "ALT.", "ALTURA", "A", "ALT_LIQUIDO", "LARGURA"] if c in df_ch.columns), None)
+            col_esp = next((c for c in ["ESP", "ESP.", "ESPESSURA", "E", "LARG_LIQUIDO"] if c in df_ch.columns), None)
+
+            if col_bloco:
+                df_ch["N_BLOCO_STR"] = df_ch[col_bloco].astype(str).str.strip().str.split(".").str[0].str.upper()
+                bloco_busca = str(bloco_id).strip().split(".")[0].upper()
+                
+                match = df_ch[df_ch["N_BLOCO_STR"] == bloco_busca]
+                if not match.empty:
+                    row = match.iloc[0]
+                    return {
+                        "MATERIAL": str(row.get(col_mat, "")).strip().upper() if col_mat else "",
+                        "COMP": float(pd.to_numeric(row.get(col_comp, 0), errors="coerce") or 0) if col_comp else 0,
+                        "ALT": float(pd.to_numeric(row.get(col_alt, 0), errors="coerce") or 0) if col_alt else 0,
+                        "LARG": float(pd.to_numeric(row.get(col_esp, 0), errors="coerce") or 0) if col_esp else 0,
+                        "SOURCE": "Estoque de Chapas"
+                    }
+    except Exception as e:
+        print(f"Erro ao buscar no ESTOQUE CHAPAS: {e}")
+
+    return None
+
+
+def get_listas_endurentes():
+    """Retorna a lista de endurecedores e suas proporções da aba LISTAS."""
+    try:
+        file_path = _get_apontamento_file()
+        df = pd.read_excel(file_path, sheet_name='LISTAS', engine="openpyxl")
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        return df.to_dict(orient='records')
+    except Exception as e:
+        print(f"Erro ao carregar lista de endurecedores: {e}")
+        return []

@@ -1,7 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import importlib
 import data_manager as dm
 
@@ -10,6 +10,20 @@ importlib.reload(dm)
 st.set_page_config(page_title="Gerenciador de Programação", layout="wide", page_icon="📊")
 
 st.title("📊 Gerenciador de Programação WIP")
+
+# Custom CSS to improve navigation
+st.markdown("""
+    <style>
+    /* Esconde ABSOLUTAMENTE todos os botões internos de campos numéricos (+, -, x) */
+    [data-testid="stNumberInputContainer"] button {
+        display: none !important;
+    }
+    /* Garante que o input ocupe todo o espaço e não pare o TAB nos botões escondidos */
+    [data-testid="stNumberInputContainer"] input {
+        padding-right: 1rem !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # Load data
 df = dm.get_data()
@@ -36,12 +50,13 @@ if not df_base.empty and "PROCESSO" in df_base.columns and "SETOR" in df_base.co
             lista_processos.append(p)
 lista_processos = sorted(list(set(lista_processos)))
 
-tab_block, tab_view, tab_machine, tab_apontamento, tab_export, tab_config = st.tabs([
+tab_block, tab_view, tab_machine, tab_apontamento, tab_export, tab_analises, tab_config = st.tabs([
     "🛠️ Adicionar / Editar Bloco", 
     "👁️ Base de Dados", 
     "🗓️ Janela de Programações",
     "✅ Apontamento",
     "🖨️ Exportação",
+    "📈 Análises e Indicadores",
     "⚙️ Opções Gerais"
 ])
 
@@ -63,10 +78,38 @@ with tab_block:
         st.session_state["vol_edit"] = 0.0
         
     if modo == "Criar Novo Bloco":
+        # --- BUSCA AUTOMÁTICA DE INFO PARA NOVO BLOCO ---
+        bloco = st.text_input("Número do Bloco*", key="c_blo")
+        
+        if bloco and bloco != st.session_state.get("c_last_bloco"):
+            info = dm.get_bloco_info(bloco)
+            if info:
+                st.session_state["c_mat_val"] = info["MATERIAL"]
+                st.session_state["c_source"] = info["SOURCE"]
+                st.session_state["c_found"] = True
+                st.session_state["c_last_bloco"] = bloco
+                st.rerun()
+            else:
+                st.session_state["c_mat_val"] = ""
+                st.session_state["c_source"] = ""
+                st.session_state["c_found"] = False
+                st.session_state["c_last_bloco"] = bloco
+                st.rerun()
+        elif not bloco:
+            st.session_state["c_mat_val"] = ""
+            st.session_state["c_source"] = ""
+            st.session_state["c_found"] = None
+            st.session_state["c_last_bloco"] = ""
+
+        if bloco:
+            if st.session_state.get("c_found"):
+                st.success(f"✅ Bloco já cadastrado na base: **{st.session_state.get('c_source')}**")
+            elif st.session_state.get("c_found") is False:
+                st.info("ℹ️ Bloco novo (não encontrado nas bases de Blocos/Chapas).")
+
         c1, c2, c3 = st.columns(3)
         with c1:
-            material = st.text_input("Material*", key="c_mat")
-            bloco = st.text_input("Número do Bloco*", key="c_blo")
+            material = st.text_input("Material*", value=st.session_state.get("c_mat_val", ""), key="c_mat")
         with c2:
             demanda = st.text_input("Demanda", key="c_dem")
             qtd_chapas = st.number_input("Qtd. Chapas", min_value=0, step=1, key="c_qtd")
@@ -506,159 +549,393 @@ with tab_apontamento:
     st.markdown("Cruza o que foi **apontado na planilha de produção** com o que estava **programado**, para você confirmar o que foi REALIZADO.")
 
     # ---- NOVO FORMULÁRIO DE APONTAMENTO MANUAL DINÂMICO ----
-    with st.expander("➕ Lançar Novo Apontamento Manual", expanded=False):
+    with st.expander("➕ Lançar Novo Apontamento Manual", expanded=True):
         st.markdown("### Registro de Produção")
         
-        # 1. Pergunta o TIPO genérico de processo
-        tipos_processo = ["", "Serrada / Corte", "Levigamento / Polimento", "Resinagem / Tela / Manta / Estuque", "Retoque", "Outros"]
-        f_tipo = st.selectbox("1. Tipo de Processo*", tipos_processo, key="ap_tipo_proc")
+        # 1. BUSCA DE BLOCO (Sempre disponível no topo)
+        c_bl1, c_bl2 = st.columns([1, 3])
+        with c_bl1:
+            f_bloco = st.text_input("Nº Bloco*", value=st.session_state.get("ap_bloco_val", ""), placeholder="Ex: 1234", key="ap_bloco_trigger_v2")
         
-        if f_tipo:
-            # 2. Pergunta o PROCESSO específico da base
-            opcoes_proc_padrao = sorted(lista_processos)
-            f_processo = st.selectbox("2. Processo Específico*", [""] + opcoes_proc_padrao, key="ap_f_proc")
-            
-            if f_processo:
-                with st.form("form_novo_apontamento_dyn", clear_on_submit=True, enter_to_submit=False):
-                    st.markdown("#### Dados Principais")
-                    c_p1, c_p2, c_p3, c_p4 = st.columns(4)
-                    with c_p1:
-                        f_data = st.date_input("Data Reg.*", value=datetime.now(), format="DD/MM/YYYY")
-                        f_bloco = st.text_input("Nº Bloco*", value=None, placeholder="Ex: 1234")
-                        f_material = st.text_input("Material*", value=None, placeholder="Ex: ALPINUS")
-                    with c_p2:
-                        setores_ativos = set(str(x) for x in df["SETOR"].unique() if str(x) not in ["", "nan"])
-                        setores_mapa = set(v for v in mapa_processos.values() if v)
-                        setores_disponiveis = sorted(list(setores_ativos | setores_mapa))
-                        f_setor = st.selectbox("Máquina/Setor*", [""] + setores_disponiveis)
-                        f_operador = st.text_input("Operador", value=None)
-                        f_turno = st.selectbox("Turno", ["", "D", "N"])
-                    with c_p3:
-                        f_qtd_ch = st.number_input("Qtd Chapas*", min_value=0, step=1, value=None)
-                        f_dureza = st.text_input("Dureza", value=None)
-                    with c_p4:
-                        f_esp = st.number_input("Espessura", min_value=0.0, step=0.1, value=None)
-                        f_comp = st.number_input("Comprimento (m)", min_value=0.0, step=0.01, value=None)
-                        f_alt = st.number_input("Altura (m)", min_value=0.0, step=0.01, value=None)
-
-                    st.markdown("#### Tempos")
-                    c_t1, c_t2, c_t3, c_t4 = st.columns(4)
-                    with c_t1: f_dia_ini = st.date_input("Dia Início", value=None, format="DD/MM/YYYY")
-                    with c_t2: f_dia_fim = st.date_input("Dia Fim", value=None, format="DD/MM/YYYY")
-                    with c_t3: f_hora_ini_str = st.text_input("Hora Início", value="", placeholder="Ex: 1040")
-                    with c_t4: f_hora_fim_str = st.text_input("Hora Fim", value="", placeholder="Ex: 1530")
-
-                    st.markdown("#### Insumos Específicos")
-                    extra_data = {}
-                    
-                    # Lógica agora baseada no TIPO, independente do nome do processo
-                    if f_tipo == "Levigamento / Polimento":
-                        c_i1, c_i2 = st.columns(2)
-                        with c_i1: extra_data["VEL_ESTEIRA"] = st.text_input("Vel. Esteira", value=None)
-                        with c_i2: extra_data["VEL_TRAVE"] = st.text_input("Vel. Trave", value=None)
-                        
-                        with st.expander("🛠️ Sequência de Abrasivos (1 a 20)", expanded=False):
-                            for r in range(5):
-                                cols_abr = st.columns(4)
-                                for c in range(4):
-                                    i = r * 4 + c + 1
-                                    val_abr = cols_abr[c].text_input(f"Seq. Abr. {i}", value=None, key=f"abr_{i}")
-                                    if val_abr:
-                                        extra_data[f"Seq. Abr. {i}"] = val_abr
-                    
-                    elif f_tipo == "Resinagem / Tela / Manta / Estuque":
-                        c_i1, c_i2, c_i3 = st.columns(3)
-                        with c_i1:
-                            extra_data["TIPO_ACIDO"] = st.text_input("Tipo Ácido", value=None)
-                            extra_data["TIPO_RESINA"] = st.text_input("Tipo Resina / Manta", value=None)
-                        with c_i2:
-                            extra_data["QTD_KG"] = st.number_input("Qtd KG (Resina)", min_value=0.0, step=0.1, value=None)
-                            extra_data["TIPO_ENDUR"] = st.text_input("Tipo Endurecedor", value=None)
-                        with c_i3:
-                            extra_data["QTD_KG3"] = st.number_input("Qtd KG (Endurecedor)", min_value=0.0, step=0.1, value=None)
-                            extra_data["V_24H"] = st.text_input("Tempo de Secagem", value=None)
-                    
-                    elif f_tipo == "Retoque":
-                        c_i1, c_i2 = st.columns(2)
-                        with c_i1: extra_data["IMPERMEABILIZANTE"] = st.text_input("Impermeabilizante", value=None)
-                        with c_i2: extra_data["LIXA"] = st.text_input("Lixa Utilizada", value=None)
-                    
+        if f_bloco != st.session_state.get("ap_last_bloco"):
+            if f_bloco:
+                with st.spinner("Buscando informações do bloco..."):
+                    info = dm.get_bloco_info(f_bloco)
+                    if info:
+                        st.session_state["ap_mat_val"] = info["MATERIAL"]
+                        st.session_state["ap_comp_val"] = info["COMP"]
+                        st.session_state["ap_alt_val"] = info["ALT"]
+                        st.session_state["ap_source"] = info["SOURCE"]
+                        st.session_state["ap_found"] = True
                     else:
-                        st.info("Nenhum insumo específico necessário para este tipo de processo.")
-                    
-                    if st.form_submit_button("🚀 Gravar Apontamento", type="primary", use_container_width=True):
-                        if not f_data or not f_bloco or not f_material or not f_setor or f_qtd_ch is None:
-                            st.error("Por favor, preencha todos os campos obrigatórios (*).")
-                        else:
-                            # Parse custom time format (e.g. 1040 -> 10:40)
-                            def parse_time(t_str):
+                        st.session_state["ap_mat_val"] = ""
+                        st.session_state["ap_comp_val"] = 0.0
+                        st.session_state["ap_alt_val"] = 0.0
+                        st.session_state["ap_source"] = ""
+                        st.session_state["ap_found"] = False
+                st.session_state["ap_last_bloco"] = f_bloco
+                st.rerun()
+            else:
+                st.session_state["ap_mat_val"] = ""
+                st.session_state["ap_comp_val"] = 0.0
+                st.session_state["ap_alt_val"] = 0.0
+                st.session_state["ap_last_bloco"] = ""
+                st.session_state["ap_source"] = ""
+                st.session_state["ap_found"] = None
+                st.rerun()
+
+        # Exibição do Status da Busca e Histórico
+        if f_bloco:
+            if st.session_state.get("ap_found"):
+                st.success(f"✅ Bloco encontrado na base: **{st.session_state.get('ap_source')}**")
+            elif st.session_state.get("ap_found") is False:
+                st.warning("⚠️ Bloco não encontrado nas bases de dados (Blocos/Chapas). Preencha manualmente.")
+            
+            with st.expander(f"📜 Ver histórico de apontamentos do bloco {f_bloco}", expanded=False):
+                with st.spinner("Carregando histórico..."):
+                    historico = dm.get_apontamentos_por_bloco(f_bloco)
+                    if not historico.empty:
+                        st.dataframe(historico, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Nenhum apontamento anterior encontrado para este bloco.")
+
+        # 2. Escolha do TIPO e ETAPA (Aparecem após o bloco ser digitado)
+        if f_bloco:
+            tipos_processo = ["", "Serrada / Corte", "Levigamento / Polimento", "Resinagem / Tela / Manta / Estuque", "Retoque", "Outros"]
+            f_tipo = st.selectbox("1. Tipo de Processo*", tipos_processo, key="ap_tipo_proc_v3")
+            
+            if f_tipo:
+                opcoes_proc_master = sorted(list(mapa_processos.keys()))
+                f_processo = st.selectbox("2. Processo/Etapa*", [""] + opcoes_proc_master, key="f_proc_master_v5")
+                
+                if f_processo:
+                    # 1. SEÇÃO LIVE: RESINAGEM (Manual e Dinâmica via Form para evitar lag)
+                    # Fora do form principal pois Streamlit não aceita forms aninhados
+                    f_qtd_resina, f_tipo_resina, f_tipo_endur, f_qtd_endur_calc, f_sec, f_prop = 0.0, "", "", 0.0, 24, 0.0
+                    if f_tipo == "Resinagem / Tela / Manta / Estuque":
+                        with st.form("form_resinagem_live"):
+                            st.markdown("#### 🧪 Insumos Principais (Cálculo ao pressionar ENTER)")
+                            c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+                            with c_m1:
+                                f_tipo_resina = st.text_input("Nome da Resina", value="", key="live_res_nome")
+                                f_qtd_resina = st.number_input("Qtd KG (Resina)", min_value=0.0, step=0.1, value=None, key="live_res_kg")
+                            with c_m2:
+                                f_tipo_endur = st.text_input("Nome do Catalisador", value="", key="live_cat_nome")
+                                f_prop = st.number_input("Proporção (%)", min_value=0.0, max_value=100.0, step=0.1, value=None, key="live_cat_prop")
+                            
+                            if f_prop and f_prop > 0:
+                                f_qtd_endur_calc = round((f_qtd_resina if f_qtd_resina else 0.0) * (f_prop / 100), 3)
+                                with c_m3: st.number_input("Qtd KG (Catalisador)", value=f_qtd_endur_calc, disabled=True)
+                                with c_m4: f_sec = st.number_input("Tempo Secagem (h)", min_value=0, value=24)
+                            
+                            st.form_submit_button("🔄 RECALCULAR / CONFIRMAR PROPORÇÃO", use_container_width=True)
+                            if not f_prop or f_prop <= 0:
+                                st.info("ℹ️ Digite a proporção e pressione ENTER ou o botão acima para calcular.")
+                        st.markdown("---")
+
+                    # 2. O RESTANTE NO FORM (Para evitar atualizações constantes ao usar TAB)
+                    with st.form("form_apontamento_completo"):
+                        st.markdown("#### 📄 Dados de Produção e Insumos")
+                        
+                        c_p1, c_p2, c_p3, c_p4 = st.columns(4)
+                        with c_p1:
+                            f_data = st.date_input("Data Reg.*", value=datetime.now(), format="DD/MM/YYYY")
+                            f_material = st.text_input("Material*", value=st.session_state.get("ap_mat_val", ""), placeholder="Ex: ALPINUS")
+                        with c_p2:
+                            setores_ativos = set(str(x) for x in df["SETOR"].unique() if str(x) not in ["", "nan"])
+                            setores_mapa = set(v for v in mapa_processos.values() if v)
+                            setores_disponiveis = sorted(list(setores_ativos | setores_mapa))
+                            f_setor = st.selectbox("Máquina/Setor*", [""] + setores_disponiveis)
+                            f_operador = st.text_input("Operador")
+                        with c_p3:
+                            f_qtd_ch = st.number_input("Qtd Chapas*", min_value=0, step=1, value=None)
+                            f_esp = st.number_input("Espessura", min_value=0.0, step=0.1, value=None)
+                        with c_p4:
+                            f_comp = st.number_input("Comprimento (m)", min_value=0.0, step=0.01, value=float(st.session_state.get("ap_comp_val", 0.0)))
+                            f_alt = st.number_input("Altura (m)", min_value=0.0, step=0.01, value=float(st.session_state.get("ap_alt_val", 0.0)))
+
+                        c_t1, c_t2, c_t3, c_t4 = st.columns(4)
+                        with c_t1: f_dia_ini = st.date_input("Dia Início", value=datetime.now() - timedelta(days=1), format="DD/MM/YYYY")
+                        with c_t2: f_dia_fim = st.date_input("Dia Fim", value=datetime.now() - timedelta(days=1), format="DD/MM/YYYY")
+                        with c_t3: f_hora_ini_str = st.text_input("Hora Início", value="", placeholder="Ex: 0800")
+                        with c_t4: f_hora_fim_str = st.text_input("Hora Fim", value="", placeholder="Ex: 1530")
+
+                        if f_tipo == "Levigamento / Polimento":
+                            st.markdown("---")
+                            st.caption("⚙️ Configuração da Máquina (C01 a C20)")
+                            if "polishing_heads_state" not in st.session_state: st.session_state["polishing_heads_state"] = [""] * 20
+                            for r in range(2):
+                                cols_c = st.columns(10)
+                                for c in range(10):
+                                    idx = r * 10 + c
+                                    st.session_state["polishing_heads_state"][idx] = cols_c[c].text_input(f"C{idx+1:02d}", value=st.session_state["polishing_heads_state"][idx], key=f"f_cab_form_{idx+1}")
+
+                        st.markdown("---")
+                        c_i1, c_i2 = st.columns([3, 2])
+                        with c_i1:
+                            st.caption("➕ Insumos Adicionais")
+                            if "df_ins_add" not in st.session_state or st.session_state.get("last_proc_v3") != f_processo:
+                                st.session_state["last_proc_v3"] = f_processo
+                                if f_tipo == "Resinagem / Tela / Manta / Estuque": rows_add = [{"TIPO": "MANTA", "DESCRICAO": "", "QTD": 0.0, "UNID": "M²"}]
+                                elif f_tipo == "Levigamento / Polimento": rows_add = [{"TIPO": "ABRASIVO", "DESCRICAO": "", "QTD": 0.0, "UNID": "UNID"}]
+                                else: rows_add = [{"TIPO": "OUTROS", "DESCRICAO": "", "QTD": 0.0, "UNID": "UNID"}]
+                                st.session_state["df_ins_add"] = pd.DataFrame(rows_add)
+                            editado_ins_add = st.data_editor(st.session_state["df_ins_add"], num_rows="dynamic", use_container_width=True, key="editor_ins_final")
+                        
+                        with c_i2:
+                            st.caption("⏹️ Paradas de Máquina")
+                            if "df_paradas_state" not in st.session_state:
+                                d_ontem = datetime.now() - timedelta(days=1)
+                                st.session_state["df_paradas_state"] = pd.DataFrame([{"MOTIVO": "", "DIA_INI": d_ontem, "HORA_INI": "", "DIA_FIM": d_ontem, "HORA_FIM": ""}])
+                            
+                            editado_paradas = st.data_editor(
+                                st.session_state["df_paradas_state"], 
+                                num_rows="dynamic", 
+                                use_container_width=True, 
+                                column_config={
+                                    "DIA_INI": st.column_config.DateColumn("D.Início", format="DD/MM/YYYY"),
+                                    "DIA_FIM": st.column_config.DateColumn("D.Fim", format="DD/MM/YYYY"),
+                                    "HORA_INI": st.column_config.TextColumn("H.Início"),
+                                    "HORA_FIM": st.column_config.TextColumn("H.Fim")
+                                },
+                                key="editor_paradas_final"
+                            )
+
+                        btn_carrinho = st.form_submit_button("🛒 ADICIONAR AO CARRINHO", use_container_width=True, type="primary")
+
+                        if btn_carrinho:
+                            def parse_time_local(t_str):
                                 if not t_str: return None
                                 import re
                                 from datetime import time
-                                t = re.sub(r'\D', '', t_str)
-                                if len(t) == 1: t = "0" + t + "00"
-                                elif len(t) == 2: t = t + "00"
-                                elif len(t) == 3: t = "0" + t
-                                elif len(t) > 4: t = t[:4]
-                                
+                                t = re.sub(r'\D', '', str(t_str))
                                 if len(t) == 4:
-                                    h, m = int(t[:2]), int(t[2:])
-                                    if 0 <= h <= 23 and 0 <= m <= 59:
-                                        return time(h, m)
+                                    try: return time(int(t[:2]), int(t[2:]))
+                                    except: return None
                                 return None
+
+                            h_ini = parse_time_local(f_hora_ini_str)
+                            h_fim = parse_time_local(f_hora_fim_str)
                             
-                            f_hora_ini = parse_time(f_hora_ini_str)
-                            f_hora_fim = parse_time(f_hora_fim_str)
-
-                            # Cálculo do tempo de processo
-                            tempo_proc = ""
-                            if f_hora_ini and f_hora_fim and f_dia_ini and f_dia_fim:
-                                dt_ini = datetime.combine(f_dia_ini, f_hora_ini)
-                                dt_fim = datetime.combine(f_dia_fim, f_hora_fim)
-                                diff = dt_fim - dt_ini
-                                if diff.total_seconds() > 0:
-                                    hours, remainder = divmod(diff.total_seconds(), 3600)
-                                    minutes, _ = divmod(remainder, 60)
-                                    tempo_proc = f"{int(hours):02d}:{int(minutes):02d}"
-
-                            # Cálculo de M2
-                            comp_val = f_comp if f_comp else 0.0
-                            alt_val = f_alt if f_alt else 0.0
-                            ch_val = f_qtd_ch if f_qtd_ch else 0
-                            calc_m2 = comp_val * alt_val * ch_val
-
-                            novo_ap_dict = {
-                                "DATA_REG": f_data.strftime("%d/%m/%Y"),
-                                "BLOCO_RAW": f_bloco,
-                                "NOME_MATERIAL": f_material.upper(),
-                                "PROCESSO_APONTADO": f_processo,
-                                "SETOR_AP": f_setor,
-                                "QTD_CH": ch_val,
-                                "QTD_M2": round(calc_m2, 3) if calc_m2 > 0 else 0.0,
-                                "ESP": f_esp if f_esp else "",
-                                "COMP": comp_val if comp_val > 0 else "",
-                                "ALT": alt_val if alt_val > 0 else "",
-                                "OPERADOR": f_operador.upper() if f_operador else "",
-                                "DUREZA": f_dureza.upper() if f_dureza else "",
-                                "DIA_INICIO": f_dia_ini.strftime("%d/%m/%Y") if f_dia_ini else "",
-                                "DIA_FIM": f_dia_fim.strftime("%d/%m/%Y") if f_dia_fim else "",
-                                "HORA_INICIO": f_hora_ini.strftime("%H:%M") if f_hora_ini else "",
-                                "HORA_FIM": f_hora_fim.strftime("%H:%M") if f_hora_fim else "",
-                                "TEMPO_PROCESSO": tempo_proc,
-                                "TURNO": f_turno
-                            }
-                            novo_ap_dict.update(extra_data)
-                            
-                            if dm.add_apontamento(novo_ap_dict):
-                                st.success(f"✅ Apontamento do bloco {f_bloco} gravado com sucesso! (Tempo Calculado: {tempo_proc if tempo_proc else 'Não aplicável'})")
-                                st.balloons()
+                            if not f_material or not f_setor or f_qtd_ch is None or not h_ini or not h_fim:
+                                st.error("❌ Preencha todos os campos obrigatórios (*) e as horas corretamente.")
                             else:
-                                st.error("Erro ao gravar apontamento no arquivo Excel.")
-            else:
-                st.info("Selecione um processo acima para abrir o formulário correspondente.")
-        else:
-            st.info("Selecione um Tipo de Processo acima para começar.")
+                                dt1 = datetime.combine(f_dia_ini, h_ini)
+                                dt2 = datetime.combine(f_dia_fim, h_fim)
+                                m_tot = (dt2 - dt1).total_seconds() / 60
+                                
+                                if m_tot <= 0:
+                                    st.error("❌ Tempo total deve ser positivo.")
+                                else:
+                                    ins_finais = []
+                                    if f_tipo == "Levigamento / Polimento":
+                                        for i in range(1, 21):
+                                            val_c = st.session_state.get(f"f_cab_form_{i}")
+                                            if val_c: ins_finais.append({"TIPO_INSUMO": "ABRASIVO", "DESCRICAO": f"CAB {i:02d}: {val_c}", "QUANTIDADE": 1.0, "UNIDADE": "UNID", "TEMPO_SECAGEM": ""})
+                                    
+                                    if f_qtd_resina and f_qtd_resina > 0:
+                                        ins_finais.append({"TIPO_INSUMO": "RESINA", "DESCRICAO": f_tipo_resina.upper(), "QUANTIDADE": f_qtd_resina, "UNIDADE": "KG", "TEMPO_SECAGEM": ""})
+                                    if f_qtd_endur_calc and f_qtd_endur_calc > 0:
+                                        ins_finais.append({"TIPO_INSUMO": "ENDURECEDOR", "DESCRICAO": f_tipo_endur.upper(), "QUANTIDADE": f_qtd_endur_calc, "UNIDADE": "KG", "TEMPO_SECAGEM": f_sec})
+                                    
+                                    for _, row in editado_ins_add.iterrows():
+                                        if row.get("TIPO") and row.get("QTD", 0) > 0:
+                                            ins_finais.append({"TIPO_INSUMO": row["TIPO"], "DESCRICAO": row["DESCRICAO"], "QUANTIDADE": row["QTD"], "UNIDADE": row["UNID"], "TEMPO_SECAGEM": ""})
+                                    
+                                    par_finais = []
+                                    for _, row in editado_paradas.iterrows():
+                                        if row.get("MOTIVO") and row.get("HORA_INI"):
+                                            par_finais.append({"MOTIVO": row["MOTIVO"], "DIA_INICIO": row["DIA_INI"].strftime("%d/%m/%Y"), "HORA_INICIO": row["HORA_INI"], "DIA_FIM": row["DIA_FIM"].strftime("%d/%m/%Y"), "HORA_FIM": row["HORA_FIM"], "TEMPO": ""})
 
+                                    novo_rec = {
+                                        "DATA_REG": f_data.strftime("%d/%m/%Y"), "BLOCO_RAW": f_bloco, "NOME_MATERIAL": f_material.upper(),
+                                        "PROCESSO_APONTADO": f_processo, "SETOR_AP": f_setor, "QTD_CH": f_qtd_ch, 
+                                        "QTD_M2": round(float(f_comp or 0) * float(f_alt or 0) * int(f_qtd_ch or 0), 3),
+                                        "ESP": f_esp if f_esp else "", "COMP": f_comp if f_comp else "", "ALT": f_alt if f_alt else "",
+                                        "OPERADOR": f_operador.upper() if f_operador else "", "DIA_INICIO": f_dia_ini.strftime("%d/%m/%Y"),
+                                        "DIA_FIM": f_dia_fim.strftime("%d/%m/%Y"), "HORA_INICIO": h_ini.strftime("%H:%M"),
+                                        "HORA_FIM": h_fim.strftime("%H:%M"), "TEMPO_PROCESSO": f"{int(m_tot // 60):02d}:{int(m_tot % 60):02d}", "TURNO": "D"
+                                    }
+                                    if "carrinho_ap" not in st.session_state: st.session_state["carrinho_ap"] = []
+                                    st.session_state["carrinho_ap"].append((novo_rec, par_finais, ins_finais))
+                                    st.toast(f"📍 Bloco {f_bloco} no carrinho!", icon="🛒")
+                                    st.rerun()
+
+                    if btn_carrinho:
+                        # Validação e lógica de salvamento (mesma lógica do callback anterior)
+                        # ... processamento dos dados lidos dos widgets acima ...
+                        def parse_time_local(t_str):
+                            if not t_str: return None
+                            import re
+                            from datetime import time
+                            t = re.sub(r'\D', '', str(t_str))
+                            if len(t) == 4:
+                                try: return time(int(t[:2]), int(t[2:]))
+                                except: return None
+                            return None
+
+                        h_ini = parse_time_local(f_hora_ini_str)
+                        h_fim = parse_time_local(f_hora_fim_str)
+                        
+                        if not f_material or not f_setor or f_qtd_ch is None or not h_ini or not h_fim:
+                            st.error("❌ Preencha todos os campos obrigatórios (*) e as horas corretamente.")
+                        else:
+                            # Calcula tempo processo
+                            dt1 = datetime.combine(f_dia_ini, h_ini)
+                            dt2 = datetime.combine(f_dia_fim, h_fim)
+                            m_tot = (dt2 - dt1).total_seconds() / 60
+                            
+                            if m_tot <= 0:
+                                st.error("❌ Tempo total deve ser positivo.")
+                            else:
+                                # Coleta Insumos das Cabeças
+                                ins_finais = []
+                                if f_tipo == "Levigamento / Polimento":
+                                    for i in range(1, 21):
+                                        val_c = st.session_state.get(f"f_cab_form_{i}")
+                                        if val_c:
+                                            ins_finais.append({
+                                                "TIPO_INSUMO": "ABRASIVO", 
+                                                "DESCRICAO": f"CAB {i:02d}: {val_c}", 
+                                                "QUANTIDADE": 1.0, 
+                                                "UNIDADE": "UNID", 
+                                                "TEMPO_SECAGEM": "",
+                                                "CABECAS": f"{i:02d}",
+                                                "INSUMO_DETALHE": val_c
+                                            })
+                                
+                                # Coleta Resinagem (Vem do scope 'Live' acima)
+                                if f_qtd_resina and f_qtd_resina > 0:
+                                    ins_finais.append({
+                                        "TIPO_INSUMO": "RESINA", 
+                                        "DESCRICAO": f_tipo_resina.upper(), 
+                                        "QUANTIDADE": f_qtd_resina, 
+                                        "UNIDADE": "KG", 
+                                        "TEMPO_SECAGEM": "",
+                                        "CABECAS": "",
+                                        "INSUMO_DETALHE": f_tipo_resina.upper()
+                                    })
+                                if f_qtd_endur_calc and f_qtd_endur_calc > 0:
+                                    ins_finais.append({
+                                        "TIPO_INSUMO": "ENDURECEDOR", 
+                                        "DESCRICAO": f_tipo_endur.upper(), 
+                                        "QUANTIDADE": f_qtd_endur_calc, 
+                                        "UNIDADE": "KG", 
+                                        "TEMPO_SECAGEM": f_sec,
+                                        "CABECAS": "",
+                                        "INSUMO_DETALHE": f_tipo_endur.upper()
+                                    })
+                                
+                                # Insumos da tabela e Paradas
+                                for _, row in editado_ins_add.iterrows():
+                                    if row.get("TIPO") and row.get("QTD", 0) > 0:
+                                        ins_finais.append({
+                                            "TIPO_INSUMO": row["TIPO"], 
+                                            "DESCRICAO": row["DESCRICAO"], 
+                                            "QUANTIDADE": row["QTD"], 
+                                            "UNIDADE": row["UNID"], 
+                                            "TEMPO_SECAGEM": "",
+                                            "CABECAS": "",
+                                            "INSUMO_DETALHE": row["DESCRICAO"]
+                                        })
+                                
+                                # 4. Coleta Paradas (Downtimes) e Validação Estrita
+                                par_finais = []
+                                total_mp = 0
+                                erro_parada = None
+                                
+                                for _, p_row in editado_paradas.iterrows():
+                                    if p_row.get("MOTIVO"):
+                                        h_ini_p = parse_time_local(p_row.get("HORA_INI"))
+                                        h_fim_p = parse_time_local(p_row.get("HORA_FIM"))
+                                        
+                                        if not h_ini_p or not h_fim_p:
+                                            erro_parada = f"❌ Hora inválida ou incompleta na parada '{p_row['MOTIVO']}'."
+                                            break
+                                            
+                                        dt_ini_p = datetime.combine(p_row["DIA_INI"], h_ini_p)
+                                        dt_fim_p = datetime.combine(p_row["DIA_FIM"], h_fim_p)
+                                        mp = (dt_fim_p - dt_ini_p).total_seconds() / 60
+                                        
+                                        # Validação: Dentro do intervalo do processo?
+                                        if dt_ini_p < dt1 or dt_fim_p > dt2:
+                                            erro_parada = f"❌ Parada '{p_row['MOTIVO']}' ({h_ini_p.strftime('%H:%M')} às {h_fim_p.strftime('%H:%M')}) está fora do intervalo do processo ({h_ini.strftime('%H:%M')} às {h_fim.strftime('%H:%M')})."
+                                            break
+                                        
+                                        if mp <= 0:
+                                            erro_parada = f"❌ Tempo da parada '{p_row['MOTIVO']}' deve ser positivo."
+                                            break
+
+                                        total_mp += mp
+                                        par_finais.append({
+                                            "MOTIVO": p_row["MOTIVO"], 
+                                            "DIA_INICIO": p_row["DIA_INI"].strftime("%d/%m/%Y"), 
+                                            "HORA_INICIO": h_ini_p.strftime("%H:%M"), 
+                                            "DIA_FIM": p_row["DIA_FIM"].strftime("%d/%m/%Y"), 
+                                            "HORA_FIM": h_fim_p.strftime("%H:%M"), 
+                                            "TEMPO": f"{int(mp // 60):02d}:{int(mp % 60):02d}"
+                                        })
+
+                                if erro_parada:
+                                    st.error(erro_parada)
+                                elif total_mp > m_tot:
+                                    st.error(f"❌ Soma das paradas ({int(total_mp)} min) é maior que o tempo total de processo ({int(m_tot)} min).")
+                                else:
+                                    # ... resto da lógica de sucesso ...
+                                    # Calcula Turno (D = 07:00 as 19:00, N = resto)
+                                    f_turno = "D"
+                                    if h_ini.hour >= 19 or h_ini.hour < 7:
+                                        f_turno = "N"
+
+                                    novo_rec = {
+                                        "DATA_REG": f_data.strftime("%d/%m/%Y"), "BLOCO_RAW": f_bloco, "NOME_MATERIAL": f_material.upper(),
+                                        "PROCESSO_APONTADO": f_processo, "SETOR_AP": f_setor, "QTD_CH": f_qtd_ch, 
+                                        "QTD_M2": round(f_comp * f_alt * f_qtd_ch, 3) if f_comp and f_alt else 0.0,
+                                        "ESP": f_esp if f_esp else "", "COMP": f_comp if f_comp else "", "ALT": f_alt if f_alt else "",
+                                        "OPERADOR": f_operador.upper() if f_operador else "", "DIA_INICIO": f_dia_ini.strftime("%d/%m/%Y"),
+                                        "DIA_FIM": f_dia_fim.strftime("%d/%m/%Y"), "HORA_INICIO": h_ini.strftime("%H:%M"),
+                                        "HORA_FIM": h_fim.strftime("%H:%M"), "TEMPO_PROCESSO": f"{int(m_tot // 60):02d}:{int(m_tot % 60):02d}", "TURNO": f_turno
+                                    }
+                                    if "carrinho_ap" not in st.session_state: st.session_state["carrinho_ap"] = []
+                                    st.session_state["carrinho_ap"].append((novo_rec, par_finais, ins_finais))
+                                    st.toast(f"📍 Bloco {f_bloco} no carrinho!", icon="🛒")
+                                    st.rerun()
+
+                # --- EXIBIÇÃO DO CARRINHO (FORA DO FORM) ---
+                if "carrinho_ap" in st.session_state and st.session_state["carrinho_ap"]:
+                    st.markdown("### 🛒 Carrinho de Apontamentos")
+                    st.info(f"Você tem {len(st.session_state['carrinho_ap'])} apontamento(s) no carrinho.")
+                    
+                    dados_view = []
+                    for rec, par, ins in st.session_state["carrinho_ap"]:
+                        dados_view.append({"Bloco": rec["BLOCO_RAW"], "Material": rec["NOME_MATERIAL"], "Processo": rec["PROCESSO_APONTADO"], "Chapas": rec["QTD_CH"]})
+                    st.table(pd.DataFrame(dados_view))
+                    
+                    c_b1, c_b2 = st.columns(2)
+                    with c_b1:
+                        if st.button("🗑️ Limpar Carrinho", use_container_width=True):
+                            st.session_state["carrinho_ap"] = []
+                            st.rerun()
+                    with c_b2:
+                        if st.button("🚀 FINALIZAR E SALVAR TUDO", type="primary", use_container_width=True):
+                            with st.spinner("Gravando no Excel..."):
+                                next_id = dm.get_next_apontamento_id()
+                                batch = []
+                                for rec, par, ins in st.session_state["carrinho_ap"]:
+                                    rec["ID"] = next_id
+                                    batch.append((rec, par, ins))
+                                    next_id += 1
+                                
+                                ok, err = dm.add_apontamento_batch(batch)
+                                if ok:
+                                    st.success(f"✅ {len(batch)} itens salvos com sucesso!")
+                                    st.session_state["carrinho_ap"] = []
+                                    st.balloons()
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ Erro ao salvar: {err}")
+                else: st.info("Selecione um processo acima para abrir o formulário.")
+            else: st.info("Selecione um Tipo de Processo acima.")
 
     st.divider()
 
@@ -1004,37 +1281,142 @@ with tab_export:
             """
             st.components.v1.html(html, height=max(600, 55 * len(df_export) + 200), scrolling=True)
 
-# ----------------- ABA 6: OPÇÕES GERAIS -----------------
+# Função auxiliar para abrir dialog do Windows (definida fora para evitar redefinição)
+def gui_select_file(current_path, is_excel=True):
+    import tkinter as tk
+    from tkinter import filedialog
+    import os
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        root.wm_attributes('-topmost', 1)
+        init_dir = os.path.dirname(current_path) if current_path and os.path.exists(current_path) else "."
+        types = [("Excel files", "*.xlsx *.xlsm *.xls *.xlsb"), ("All files", "*.*")] if is_excel else [("All files", "*.*")]
+        
+        file_path = filedialog.askopenfilename(
+            initialdir=init_dir,
+            title="Selecione o Arquivo",
+            filetypes=types
+        )
+        root.destroy()
+        if file_path:
+            return file_path.replace("/", "\\")
+        return None
+    except Exception as e:
+        print(f"Erro no seletor: {e}")
+        return None
+
+# ----------------- ABA 6: ANÁLISES E INDICADORES -----------------
+with tab_analises:
+    st.header("📈 Análises e Indicadores de Produção")
+    
+    # Recarrega dados para garantir frescor
+    df_raw_an = dm.get_data()
+    mapping_an = dm._get_system_mapping()
+    
+    def find_col_an(key):
+        for alias in mapping_an.get(key, []):
+            if alias.upper() in df_raw_an.columns: return alias.upper()
+        return None
+
+    c_dt = find_col_an("DATA_REG")
+    c_m2 = find_col_an("QTD_M2")
+    c_ch = find_col_an("QTD_CH")
+    c_st = find_col_an("SETOR_AP")
+    c_tr = find_col_an("TURNO")
+    c_pr = find_col_an("PROCESSO_APONTADO")
+
+    if df_raw_an.empty:
+        st.warning("⚠️ Base de dados vazia ou não carregada.")
+    elif not c_dt or not c_m2 or not c_ch:
+        st.warning("⚠️ Colunas essenciais (Data, M², Chapas) não encontradas no DB para gerar análises.")
+    else:
+        # Filtro de Período
+        col_f1, col_f2 = st.columns([1, 3])
+        with col_f1:
+            periodo = st.selectbox("Período", ["Últimos 7 dias", "Últimos 30 dias", "Mês Atual", "Todo o Histórico"], index=1)
+        
+        # Processamento Básico
+        df_an = df_raw_an.copy()
+        # Converte para numérico o que for medida
+        for col_num in [c_m2, c_ch]:
+            df_an[col_num] = pd.to_numeric(df_an[col_num], errors='coerce').fillna(0)
+
+        df_an[c_dt] = pd.to_datetime(df_an[c_dt], errors='coerce', dayfirst=True)
+        df_an = df_an.dropna(subset=[c_dt])
+        
+        # Filtro de datas
+        hoje = datetime.now()
+        if periodo == "Últimos 7 dias": df_an = df_an[df_an[c_dt] >= hoje - timedelta(days=7)]
+        elif periodo == "Últimos 30 dias": df_an = df_an[df_an[c_dt] >= hoje - timedelta(days=30)]
+        elif periodo == "Mês Atual": df_an = df_an[(df_an[c_dt].dt.month == hoje.month) & (df_an[c_dt].dt.year == hoje.year)]
+        
+        # Identificação de Refeito
+        df_an["REFEITO"] = df_an[c_pr].astype(str).str.upper().str.contains("REPASSE|RETOQUE|REFEITO|REPROCESSO")
+        df_an["TIPO_PROD"] = df_an["REFEITO"].map({True: "Refeito/Repasse", False: "Produção Normal"})
+
+        # Métricas Globais
+        m_tot_m2 = df_an[c_m2].sum()
+        m_tot_ch = df_an[c_ch].sum()
+        m_refeito = df_an[df_an["REFEITO"]][c_m2].sum()
+        p_refeito = (m_refeito / m_tot_m2 * 100) if m_tot_m2 > 0 else 0
+
+        c_met1, c_met2, c_met3, c_met4 = st.columns(4)
+        c_met1.metric("Produção Total (M²)", f"{m_tot_m2:,.2f}")
+        c_met2.metric("Total Chapas", f"{int(m_tot_ch)}")
+        c_met3.metric("Refeito (M²)", f"{m_refeito:,.2f}")
+        c_met4.metric("% Refeito", f"{p_refeito:.1f}%")
+
+        st.divider()
+        
+        # Gráficos
+        c_gr1, c_gr2 = st.columns(2)
+        
+        with c_gr1:
+            st.subheader("📅 Produção Diária (M²)")
+            df_diario = df_an.groupby(df_an[c_dt].dt.date)[c_m2].sum()
+            st.bar_chart(df_diario)
+            
+        with c_gr2:
+            st.subheader("🏢 Produção por Máquina (M²)")
+            df_maq = df_an.groupby(c_st)[c_m2].sum().sort_values(ascending=False)
+            st.bar_chart(df_maq)
+
+        st.divider()
+        
+        c_gr3, c_gr4 = st.columns(2)
+        with c_gr3:
+            st.subheader("🌙 Produção por Turno")
+            df_turno_plot = df_an.groupby(c_tr)[c_m2].sum()
+            st.bar_chart(df_turno_plot)
+            
+        with c_gr4:
+            st.subheader("🔄 Normal vs Refeito")
+            df_tipo_plot = df_an.groupby("TIPO_PROD")[c_m2].sum()
+            st.bar_chart(df_tipo_plot)
+
+        st.divider()
+        st.subheader("📋 Detalhamento por Data e Máquina")
+        try:
+            df_pivot = df_an.pivot_table(
+                index=df_an[c_dt].dt.date, 
+                columns=[c_st, c_tr], 
+                values=c_m2, 
+                aggfunc='sum'
+            ).fillna(0)
+            st.dataframe(df_pivot, use_container_width=True)
+        except:
+            st.info("Não foi possível gerar a tabela dinâmica com os dados atuais.")
+
+# ----------------- ABA 7: OPÇÕES GERAIS -----------------
 with tab_config:
     st.header("⚙️ Opções Gerais")
-
-    # ---- SEÇÃO 1: CAMINHOS DAS BASES DE DADOS ----
     st.subheader("📁 Caminhos e Abas das Bases de Dados")
     st.markdown("Configure os arquivos e **qual aba** de cada planilha o sistema deve usar. Após salvar, atualize a página.")
 
     cfg_atual = dm.get_config()
 
-    # Função auxiliar para abrir dialog do Windows
-    def gui_select_file(current_path, is_excel=True):
-        import tkinter as tk
-        from tkinter import filedialog
-        import os
-        try:
-            root = tk.Tk()
-            root.withdraw()
-            root.wm_attributes('-topmost', 1)
-            init_dir = os.path.dirname(current_path) if current_path and os.path.exists(current_path) else "."
-            types = [("Excel files", "*.xlsx *.xlsm *.xls"), ("All files", "*.*")] if is_excel else [("All files", "*.*")]
-            
-            file_path = filedialog.askopenfilename(
-                initialdir=init_dir,
-                title="Selecione o Arquivo",
-                filetypes=types
-            )
-            root.destroy()
-            return file_path.replace("/", "\\") if file_path else ""
-        except Exception as e:
-            return ""
+
 
     # --- Arquivo de Programação ---
     st.markdown("#### 📊 Arquivo de Programação (`.xlsm`)")
@@ -1130,6 +1512,64 @@ with tab_config:
 
     st.markdown("---")
 
+    # --- Planilha de Blocos ---
+    st.markdown("#### 🧱 Planilha de Blocos (`.xlsb`)")
+    
+    if "tmp_bl_path" not in st.session_state:
+        st.session_state["tmp_bl_path"] = cfg_atual.get("BLOCKS_FILE", "")
+
+    col_bl1, col_bl2, col_bl3 = st.columns([3, 1, 1])
+    with col_bl1:
+        novo_bl = st.text_input(
+            "Caminho completo",
+            value=st.session_state["tmp_bl_path"],
+            key="cfg_bl_path_input",
+            label_visibility="collapsed",
+            placeholder="Ex: z:\\PCP\\PLANILHA BLOCOS.xlsb"
+        )
+        if novo_bl != st.session_state["tmp_bl_path"]:
+            st.session_state["tmp_bl_path"] = novo_bl
+    with col_bl2:
+        if st.button("🔍 Buscar...", key="btn_busc_bl"):
+            selecionado = gui_select_file(st.session_state["tmp_bl_path"])
+            if selecionado:
+                st.session_state["tmp_bl_path"] = selecionado
+                st.rerun()
+    with col_bl3:
+        existe_bl_live = _osc.path.exists(st.session_state["tmp_bl_path"])
+        st.markdown(f"<div style='margin-top: 5px;'>{'🟢 OK' if existe_bl_live else '🔴 Não encontrado'}</div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # --- Planilha de Chapas ---
+    st.markdown("#### 📋 Planilha de Estoque de Chapas (`.xlsx`)")
+    
+    if "tmp_ch_path" not in st.session_state:
+        st.session_state["tmp_ch_path"] = cfg_atual.get("CHAPAS_FILE", "")
+
+    col_ch1, col_ch2, col_ch3 = st.columns([3, 1, 1])
+    with col_ch1:
+        novo_ch = st.text_input(
+            "Caminho completo",
+            value=st.session_state["tmp_ch_path"],
+            key="cfg_ch_path_input",
+            label_visibility="collapsed",
+            placeholder="Ex: z:\\PCP\\Estoque Chapas.xlsx"
+        )
+        if novo_ch != st.session_state["tmp_ch_path"]:
+            st.session_state["tmp_ch_path"] = novo_ch
+    with col_ch2:
+        if st.button("🔍 Buscar...", key="btn_busc_ch"):
+            selecionado = gui_select_file(st.session_state["tmp_ch_path"])
+            if selecionado:
+                st.session_state["tmp_ch_path"] = selecionado
+                st.rerun()
+    with col_ch3:
+        existe_ch_live = _osc.path.exists(st.session_state["tmp_ch_path"])
+        st.markdown(f"<div style='margin-top: 5px;'>{'🟢 OK' if existe_ch_live else '🔴 Não encontrado'}</div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
         if st.button("💾 Salvar Configurações", type="primary", use_container_width=True, key="btn_salvar_cfg"):
@@ -1138,6 +1578,10 @@ with tab_config:
                 erros_path.append(f"❌ Arquivo de Programação não encontrado: `{novo_db}`")
             if not _osc.path.exists(novo_ap):
                 erros_path.append(f"❌ Arquivo de Apontamento não encontrado: `{novo_ap}`")
+            if not _osc.path.exists(novo_bl):
+                erros_path.append(f"❌ Planilha de Blocos não encontrada: `{novo_bl}`")
+            if not _osc.path.exists(novo_ch):
+                erros_path.append(f"❌ Planilha de Chapas não encontrada: `{novo_ch}`")
 
             if erros_path:
                 for ep in erros_path:
@@ -1146,13 +1590,16 @@ with tab_config:
                 novo_cfg = dict(cfg_atual)
                 novo_cfg["DB_FILE"] = novo_db
                 novo_cfg["APONTAMENTO_FILE"] = novo_ap
+                novo_cfg["BLOCKS_FILE"] = novo_bl
+                novo_cfg["CHAPAS_FILE"] = novo_ch
                 novo_cfg["SHEET_PROGRAMACAO"] = aba_prog
                 novo_cfg["SHEET_ENTREGUES"] = aba_entregues
                 novo_cfg["SHEET_BASE_DADOS"] = aba_base
                 novo_cfg["SHEET_AP_BD"] = aba_ap_bd
                 novo_cfg["SHEET_AP_BASE"] = aba_ap_base
                 if dm.save_config(novo_cfg):
-                    st.success("✅ Configurações salvas! Atualize a página (F5) para aplicar.")
+                    st.success("✅ Configurações salvas! Aplicando...")
+                    st.rerun()
                 else:
                     st.error("Erro ao salvar o arquivo de configuração.")
 
