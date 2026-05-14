@@ -3,6 +3,7 @@ import streamlit.components.v1 as components
 import pandas as pd
 from datetime import datetime, timedelta
 import importlib
+import altair as alt
 import data_manager as dm
 
 importlib.reload(dm)
@@ -332,22 +333,43 @@ with tab_machine:
     st.header("Janela de Programações")
     st.markdown("Agende os processos em lote. Selecione os blocos na esquerda e verifique o impacto na capacidade na direita.")
     
+    # 1. FUNÇÕES DE UTILIDADE (Clusterizadas para evitar erros de escopo)
+    def match_date(d_val, target_date):
+        """Confere se uma data do Excel bate com a data alvo selecionada."""
+        if pd.isna(d_val) or str(d_val).strip() in ["", "nan", "NaT", "None"]: return False
+        try:
+            if isinstance(d_val, pd.Timestamp): return d_val.date() == target_date
+            d_str = str(d_val).strip()
+            if "/" in d_str: return pd.to_datetime(d_str, format="%d/%m/%Y").date() == target_date
+            return pd.to_datetime(d_str).date() == target_date
+        except: return False
+
+    def safe_date_str(d):
+        """Converte data do Excel em string amigável DD/MM, tratando nulos com '-'."""
+        d_str = str(d).strip().upper()
+        if pd.isna(d) or d_str in ["", "NAN", "NAT", "NONE", "NULL", "-"]: return "-"
+        try:
+            if isinstance(d, pd.Timestamp): return d.strftime("%d/%m")
+            # Tenta converter string de data
+            if "/" in str(d): return pd.to_datetime(str(d), format="%d/%m/%Y").strftime("%d/%m")
+            return pd.to_datetime(str(d)).strftime("%d/%m")
+        except: return "-"
+
+    # 2. FILTROS E DADOS INICIAIS
     medias_hist = dm.get_historico_medias_entregues()
     df_aberto = df[df["STATUS PROCESSO"] != "REALIZADO"].copy()
     
-    # Mover os seletores principais para o topo para influenciar a tabela
     st.write("---")
     c_top1, c_top2 = st.columns(2)
     with c_top1:
         data_alvo = st.date_input("Data Alvo (Para onde agendar?)", value=datetime.now(), format="DD/MM/YYYY")
+        data_alvo_date = pd.to_datetime(data_alvo).date()
     with c_top2:
         setores_list = [str(x) for x in df_aberto["SETOR"].unique() if str(x) != "" and str(x) != "nan"]
         maquina_foco = st.selectbox("Máquina/Setor Específico (Filtro)", ["Todos"] + sorted(setores_list), key="maq_foco_top")
     st.write("---")
     
-    data_alvo_date = pd.to_datetime(data_alvo).date()
-    
-    # --- AVALIAÇÃO DE BLOQUEIO DINÂMICO ---
+    # 3. LÓGICA DE LIBERAÇÃO (Bloqueios por sequência)
     status_liberado = {}
     for bloco_id, group in df_aberto.groupby("BLOCO"):
         group = group.sort_index()
@@ -359,85 +381,66 @@ with tab_machine:
                 for i in range(pos):
                     idx_ant = group.index[i]
                     d_ant = group.loc[idx_ant, "DATA"]
-                    if pd.isna(d_ant) or str(d_ant).strip() in ["", "nan", "NaT"]:
+                    # Só libera se a etapa anterior já tiver uma data (mesmo que seja futura)
+                    if pd.isna(d_ant) or str(d_ant).strip() in ["", "nan", "NaT", "None"]:
                         pode_programar = False
                         break
-                    else:
-                        # Tem data. Verifica se a data_ant é <= data_alvo
-                        try:
-                            if isinstance(d_ant, pd.Timestamp): d_ant_dt = d_ant.date()
-                            elif "/" in str(d_ant): d_ant_dt = pd.to_datetime(str(d_ant), format="%d/%m/%Y").date()
-                            else: d_ant_dt = pd.to_datetime(str(d_ant)).date()
-                            
-                            if d_ant_dt > data_alvo_date:
-                                pode_programar = False
-                                break
-                        except: pass
+                    # Se tem data, não pode agendar a próxima para ANTES da anterior
+                    try:
+                        d_ant_dt = None
+                        if isinstance(d_ant, pd.Timestamp): d_ant_dt = d_ant.date()
+                        elif "/" in str(d_ant): d_ant_dt = pd.to_datetime(str(d_ant), format="%d/%m/%Y").date()
+                        else: d_ant_dt = pd.to_datetime(str(d_ant)).date()
                         
+                        if d_ant_dt and d_ant_dt > data_alvo_date:
+                            pode_programar = False
+                            break
+                    except: pass
                 status_liberado[idx] = "🟢 Sim" if pode_programar else "🔴 Não"
-    # -----------------------------------------------------------------
     
+    # 4. COLUNA ESQUERDA: FILA DE TRABALHO
     col_esquerda, col_direita = st.columns([1.5, 1])
-    
     with col_esquerda:
         st.subheader("📋 Fila de Trabalho")
-        st.info("💡 Marque os blocos na coluna 'Selecionar' para agendá-los juntos.")
-            
         df_fila = df_aberto.copy()
         if maquina_foco != "Todos":
             df_fila = df_fila[df_fila["SETOR"] == maquina_foco]
             
         df_view = pd.DataFrame()
-        df_view["Selecionar"] = [False] * len(df_fila)
+        # Pré-seleciona automaticamente se o bloco já estiver agendado para o dia escolhido
+        df_view["Selecionar"] = df_fila["DATA"].apply(lambda x: match_date(x, data_alvo_date)).tolist()
         df_view["Liberado"] = df_fila.index.map(lambda x: status_liberado.get(x, "🔴 Não")).tolist()
-        df_view["Índice"] = df_fila.index.tolist()
+        df_view["ID"] = df_fila.index.tolist()
+        df_view["Bloco"] = df_fila["BLOCO"].tolist()
+        df_view["Material"] = df_fila.get("MATERIAL", "").tolist()
         df_view["Máquina"] = df_fila["SETOR"].tolist()
         df_view["Processo"] = df_fila["PROCESSO"].tolist()
-        df_view["Bloco"] = df_fila["BLOCO"].tolist()
         df_view["Chapas"] = pd.to_numeric(df_fila["QTD. CHAPAS"], errors="coerce").fillna(0).astype(int).tolist()
         
-        # --- Cálculo do Tempo Parado (WIP) ---
+        # Histórico WIP
         df_realizados = df[df["STATUS PROCESSO"] == "REALIZADO"].copy()
         last_realizados = df_realizados.groupby("BLOCO").tail(1).set_index("BLOCO")
         hoje = datetime.now().date()
-        
         dict_ult_proc = last_realizados["PROCESSO"].to_dict()
         dict_ult_data = {}
         dict_dias_parado = {}
         
         for b_id, row_b in last_realizados.iterrows():
-            d_raw = row_b.get("DATA REALIZADA", "")
-            if pd.isna(d_raw) or str(d_raw).strip() in ["", "nan", "NaT"]:
-                d_raw = row_b.get("DATA", "") # Fallback
-                
-            d = None
+            d_raw = row_b.get("DATA REALIZADA", "") or row_b.get("DATA", "")
             try:
+                d = None
                 if isinstance(d_raw, pd.Timestamp): d = d_raw.date()
                 elif "/" in str(d_raw): d = pd.to_datetime(str(d_raw), format="%d/%m/%Y").date()
                 elif str(d_raw).strip() not in ["", "nan", "NaT"]: d = pd.to_datetime(str(d_raw)).date()
+                
+                if d:
+                    dict_ult_data[b_id] = d.strftime("%d/%m/%Y")
+                    dict_dias_parado[b_id] = max((hoje - d).days, 0)
             except: pass
             
-            if d:
-                dict_ult_data[b_id] = d.strftime("%d/%m/%Y")
-                dias = (hoje - d).days
-                dict_dias_parado[b_id] = dias if dias >= 0 else 0
-            else:
-                dict_ult_data[b_id] = "-"
-                dict_dias_parado[b_id] = 0
-                
         df_view["Últ. Processo"] = df_fila["BLOCO"].map(lambda x: dict_ult_proc.get(x, "Nenhum")).tolist()
         df_view["Data ÚIt."] = df_fila["BLOCO"].map(lambda x: dict_ult_data.get(x, "-")).tolist()
         df_view["Dias Parado"] = df_fila["BLOCO"].map(lambda x: dict_dias_parado.get(x, 0)).tolist()
-        # -------------------------------------
-        
-        def safe_date_str(d):
-            if pd.isna(d) or str(d).strip() in ["", "nan", "NaT"]: return "-"
-            try:
-                if isinstance(d, pd.Timestamp): return d.strftime("%d/%m")
-                if "/" in str(d): return pd.to_datetime(str(d), format="%d/%m/%Y").strftime("%d/%m")
-                return pd.to_datetime(str(d)).strftime("%d/%m")
-            except: return str(d)
-            
         df_view["Data Atual"] = df_fila["DATA"].apply(safe_date_str)
         
         editado_fila = st.data_editor(
@@ -446,102 +449,115 @@ with tab_machine:
                 "Selecionar": st.column_config.CheckboxColumn("Selecionar", default=False),
                 "Liberado": st.column_config.TextColumn("Liberado?"),
                 "Dias Parado": st.column_config.NumberColumn("Dias Parado", format="%d d"),
-                "Índice": None # Escondido
+                "ID": st.column_config.NumberColumn("ID", width="small")
             },
             hide_index=True,
             use_container_width=True,
-            disabled=["Liberado", "Máquina", "Processo", "Bloco", "Chapas", "Data Atual", "Últ. Processo", "Data ÚIt.", "Dias Parado"]
+            disabled=["ID", "Liberado", "Máquina", "Processo", "Bloco", "Material", "Chapas", "Data Atual", "Últ. Processo", "Data ÚIt.", "Dias Parado"]
         )
         
-        selecionados = editado_fila[editado_fila["Selecionar"] == True]
-        chapas_selecionadas = selecionados["Chapas"].sum()
+        # Filtros baseados no ID preservado
+        selecionados = editado_fila[editado_fila["Selecionar"] == True] if "Selecionar" in editado_fila.columns else pd.DataFrame()
         
+        # Blocos que o usuário DESMARCOU (estavam agendados e agora não estão)
+        desmarcados = pd.DataFrame()
+        if "Selecionar" in editado_fila.columns and "ID" in editado_fila.columns:
+            desmarcados = editado_fila[(editado_fila["Selecionar"] == False) & (df_fila["DATA"].apply(lambda x: match_date(x, data_alvo_date)).values)]
+        
+        # Selecionados Novos (para adicionar)
+        selecionados_novos = pd.DataFrame()
+        if not selecionados.empty and "ID" in selecionados.columns:
+            selecionados_novos = selecionados[~selecionados["ID"].map(lambda idx: match_date(df.loc[idx, "DATA"], data_alvo_date))]
+        
+        # Cálculo Seguro de Chapas
+        chapas_adicionadas = 0
+        if not selecionados_novos.empty and "Chapas" in selecionados_novos.columns:
+            chapas_adicionadas = selecionados_novos["Chapas"].sum()
+            
+        chapas_removidas = 0
+        if not desmarcados.empty and "Chapas" in desmarcados.columns:
+            chapas_removidas = desmarcados["Chapas"].sum()
+            
+        saldo_chapas = chapas_adicionadas - chapas_removidas
+
+    # 5. COLUNA DIREITA: PAINEL DE ALOCAÇÃO
     with col_direita:
         st.subheader("📅 Painel de Alocação")
-        
         with st.container(border=True):
             maq_alvo = maquina_foco if maquina_foco != "Todos" else "Nenhuma Selecionada"
             st.markdown(f"**Máquina Alvo:** {maq_alvo} | **Data:** {data_alvo.strftime('%d/%m/%Y')}")
             
-            def match_date(d_val, target_date):
-                if pd.isna(d_val) or str(d_val).strip() in ["", "nan", "NaT"]: return False
-                try:
-                    if isinstance(d_val, pd.Timestamp): return d_val.date() == target_date
-                    if "/" in str(d_val): return pd.to_datetime(str(d_val), format="%d/%m/%Y").date() == target_date
-                    return pd.to_datetime(str(d_val)).date() == target_date
-                except: return False
-                
-            df_dia = df_aberto[df_aberto["DATA"].apply(lambda x: match_date(x, data_alvo))].copy()
+            df_dia = df_aberto[df_aberto["DATA"].apply(lambda x: match_date(x, data_alvo_date))].copy()
             df_dia["QTD. CHAPAS"] = pd.to_numeric(df_dia["QTD. CHAPAS"], errors="coerce").fillna(0)
             
-            carga_existente = 0
-            df_dia_maq = pd.DataFrame()
-            if maq_alvo != "Nenhuma Selecionada":
-                df_dia_maq = df_dia[df_dia["SETOR"] == maq_alvo]
-                carga_existente = df_dia_maq["QTD. CHAPAS"].sum()
-                
+            carga_existente = df_dia[df_dia["SETOR"] == maq_alvo]["QTD. CHAPAS"].sum() if maq_alvo != "Nenhuma Selecionada" else 0
             media_alvo = medias_hist.get(maq_alvo, 0)
-            carga_projetada = carga_existente + chapas_selecionadas
+            carga_projetada = carga_existente + saldo_chapas
             
             st.write("---")
             col_k1, col_k2, col_k3 = st.columns(3)
-            col_k1.metric("Carga Já Agendada", f"{int(carga_existente)} ch")
-            col_k2.metric("Sendo Adicionado", f"+ {int(chapas_selecionadas)} ch")
+            col_k1.metric("Já Agendada", f"{int(carga_existente)} ch")
             
-            delta = carga_projetada - media_alvo
-            delta_str = f"{delta:.1f} vs Média"
-            col_k3.metric("Projeção Total", f"{int(carga_projetada)} ch", delta=delta_str, delta_color="inverse" if media_alvo > 0 else "off")
+            label_add = "Adicionando" if saldo_chapas >= 0 else "Removendo"
+            col_k2.metric(label_add, f"{'+' if saldo_chapas >= 0 else ''}{int(saldo_chapas)} ch")
             
-            if not df_dia_maq.empty:
-                with st.expander("👀 Ver blocos já agendados para este dia", expanded=False):
-                    for _, row_agendada in df_dia_maq.iterrows():
-                        chapas_row = int(row_agendada["QTD. CHAPAS"])
-                        material_row = str(row_agendada.get("MATERIAL", ""))
-                        st.markdown(f"📦 **Bloco {row_agendada['BLOCO']}** ({material_row}) - {row_agendada['PROCESSO']} <span style='color:gray'>({chapas_row} chapas)</span>", unsafe_allow_html=True)
+            delta_val = carga_projetada - media_alvo
+            col_k3.metric("Projeção Total", f"{int(carga_projetada)} ch", delta=f"{delta_val:.1f} vs Média" if media_alvo > 0 else None, delta_color="inverse")
+            
+            if not df_dia[df_dia["SETOR"] == maq_alvo].empty:
+                with st.expander("👀 Ver blocos já agendados", expanded=False):
+                    for _, row_ag in df_dia[df_dia["SETOR"] == maq_alvo].iterrows():
+                        st.markdown(f"📦 **Bloco {row_ag['BLOCO']}** ({row_ag.get('MATERIAL','')}) - {row_ag['PROCESSO']} <span style='color:gray'>({int(row_ag['QTD. CHAPAS'])} ch)</span>", unsafe_allow_html=True)
             
             if media_alvo > 0:
-                st.progress(min(carga_projetada / media_alvo, 1.0))
+                st.progress(min(max(carga_projetada / media_alvo, 0.0), 1.0))
                 if carga_projetada > media_alvo:
-                    st.error(f"⚠️ Atenção: A carga projetada ({int(carga_projetada)}) ultrapassa a média histórica diária ({int(media_alvo)}) desta máquina!")
-            else:
-                if maq_alvo != "Nenhuma Selecionada":
-                    st.info("Máquina sem média histórica na aba ENTREGUES.")
+                    st.error(f"⚠️ Atenção: Carga ({int(carga_projetada)}) ultrapassa a média ({int(media_alvo)})!")
                     
             st.write("---")
             if maq_alvo == "Nenhuma Selecionada":
-                st.warning("Selecione uma Máquina Específica no filtro da esquerda para agendar em lote.")
+                st.warning("Selecione uma Máquina para agendar em lote.")
             else:
-                if st.button("🚀 Agendar Selecionados", type="primary", use_container_width=True, disabled=len(selecionados)==0):
+                btn_label = "🚀 Confirmar Alterações" if saldo_chapas != 0 else "🚀 Agendar Selecionados"
+                if st.button(btn_label, type="primary", use_container_width=True):
                     erros = []
                     sucessos = 0
+                    remocoes = 0
                     nova_data_str = data_alvo.strftime("%d/%m/%Y")
                     
-                    with st.spinner("Validando e Agendando..."):
-                        for idx_selecionado in selecionados["Índice"]:
-                            row_data_prog = df.loc[idx_selecionado]
-                            bloco = row_data_prog["BLOCO"]
-                            valido, msg_erro = dm.validar_sequencia_bloco(df, bloco, idx_selecionado, nova_data_str)
-                            
-                            if not valido:
-                                erros.append(f"Bloco {bloco}: {msg_erro}")
-                            else:
-                                updates = {
-                                    "DATA": nova_data_str,
-                                    "STATUS PROCESSO": "EM PROCESSO" if str(row_data_prog["STATUS PROCESSO"]).upper() == "NÃO REALIZADO" else row_data_prog["STATUS PROCESSO"]
-                                }
-                                if dm.update_cell_by_row(idx_selecionado, updates):
-                                    sucessos += 1
+                    with st.spinner("Atualizando Programação..."):
+                        # 1. AGENDAR NOVOS
+                        if not selecionados_novos.empty and "ID" in selecionados_novos.columns:
+                            for idx_sel in selecionados_novos["ID"]:
+                                row_data = df.loc[idx_sel]
+                                valido, msg = dm.validar_sequencia_bloco(df, row_data["BLOCO"], idx_sel, nova_data_str)
+                                if not valido:
+                                    erros.append(f"Bloco {row_data['BLOCO']}: {msg}")
                                 else:
-                                    erros.append(f"Bloco {bloco}: Erro ao salvar no banco.")
+                                    updates = {
+                                        "DATA": nova_data_str,
+                                        "STATUS PROCESSO": "EM PROCESSO" if str(row_data["STATUS PROCESSO"]).upper() == "NÃO REALIZADO" else row_data["STATUS PROCESSO"]
+                                    }
+                                    if dm.update_cell_by_row(idx_sel, updates): sucessos += 1
+                                    else: erros.append(f"Bloco {row_data['BLOCO']}: Erro ao salvar.")
+                        
+                        # 2. REMOVER DESMARCADOS
+                        if not desmarcados.empty and "ID" in desmarcados.columns:
+                            for idx_rem in desmarcados["ID"]:
+                                bloco_rem = df.loc[idx_rem, "BLOCO"]
+                                if dm.update_cell_by_row(idx_rem, {"DATA": None, "STATUS PROCESSO": "NÃO REALIZADO"}):
+                                    remocoes += 1
+                                else:
+                                    erros.append(f"Bloco {bloco_rem}: Erro ao remover.")
                                     
-                    if sucessos > 0:
-                        st.success(f"{sucessos} etapas agendadas com sucesso para {nova_data_str}!")
-                    if erros:
-                        for e in erros:
-                            st.error(f"🛑 {e}")
-                            
-                    if sucessos > 0:
+                    if sucessos > 0 or remocoes > 0:
+                        msg_sucesso = []
+                        if sucessos > 0: msg_sucesso.append(f"{sucessos} agendados")
+                        if remocoes > 0: msg_sucesso.append(f"{remocoes} removidos")
+                        st.success(f"Sucesso: {', '.join(msg_sucesso)}!")
                         st.rerun()
+                    if erros:
+                        for e in erros: st.error(f"🛑 {e}")
 
 # ----------------- ABA 4: APONTAMENTO DE PRODUÇÃO -----------------
 with tab_apontamento:
@@ -703,63 +719,6 @@ with tab_apontamento:
 
                         btn_carrinho = st.form_submit_button("🛒 ADICIONAR AO CARRINHO", use_container_width=True, type="primary")
 
-                        if btn_carrinho:
-                            def parse_time_local(t_str):
-                                if not t_str: return None
-                                import re
-                                from datetime import time
-                                t = re.sub(r'\D', '', str(t_str))
-                                if len(t) == 4:
-                                    try: return time(int(t[:2]), int(t[2:]))
-                                    except: return None
-                                return None
-
-                            h_ini = parse_time_local(f_hora_ini_str)
-                            h_fim = parse_time_local(f_hora_fim_str)
-                            
-                            if not f_material or not f_setor or f_qtd_ch is None or not h_ini or not h_fim:
-                                st.error("❌ Preencha todos os campos obrigatórios (*) e as horas corretamente.")
-                            else:
-                                dt1 = datetime.combine(f_dia_ini, h_ini)
-                                dt2 = datetime.combine(f_dia_fim, h_fim)
-                                m_tot = (dt2 - dt1).total_seconds() / 60
-                                
-                                if m_tot <= 0:
-                                    st.error("❌ Tempo total deve ser positivo.")
-                                else:
-                                    ins_finais = []
-                                    if f_tipo == "Levigamento / Polimento":
-                                        for i in range(1, 21):
-                                            val_c = st.session_state.get(f"f_cab_form_{i}")
-                                            if val_c: ins_finais.append({"TIPO_INSUMO": "ABRASIVO", "DESCRICAO": f"CAB {i:02d}: {val_c}", "QUANTIDADE": 1.0, "UNIDADE": "UNID", "TEMPO_SECAGEM": ""})
-                                    
-                                    if f_qtd_resina and f_qtd_resina > 0:
-                                        ins_finais.append({"TIPO_INSUMO": "RESINA", "DESCRICAO": f_tipo_resina.upper(), "QUANTIDADE": f_qtd_resina, "UNIDADE": "KG", "TEMPO_SECAGEM": ""})
-                                    if f_qtd_endur_calc and f_qtd_endur_calc > 0:
-                                        ins_finais.append({"TIPO_INSUMO": "ENDURECEDOR", "DESCRICAO": f_tipo_endur.upper(), "QUANTIDADE": f_qtd_endur_calc, "UNIDADE": "KG", "TEMPO_SECAGEM": f_sec})
-                                    
-                                    for _, row in editado_ins_add.iterrows():
-                                        if row.get("TIPO") and row.get("QTD", 0) > 0:
-                                            ins_finais.append({"TIPO_INSUMO": row["TIPO"], "DESCRICAO": row["DESCRICAO"], "QUANTIDADE": row["QTD"], "UNIDADE": row["UNID"], "TEMPO_SECAGEM": ""})
-                                    
-                                    par_finais = []
-                                    for _, row in editado_paradas.iterrows():
-                                        if row.get("MOTIVO") and row.get("HORA_INI"):
-                                            par_finais.append({"MOTIVO": row["MOTIVO"], "DIA_INICIO": row["DIA_INI"].strftime("%d/%m/%Y"), "HORA_INICIO": row["HORA_INI"], "DIA_FIM": row["DIA_FIM"].strftime("%d/%m/%Y"), "HORA_FIM": row["HORA_FIM"], "TEMPO": ""})
-
-                                    novo_rec = {
-                                        "DATA_REG": f_data.strftime("%d/%m/%Y"), "BLOCO_RAW": f_bloco, "NOME_MATERIAL": f_material.upper(),
-                                        "PROCESSO_APONTADO": f_processo, "SETOR_AP": f_setor, "QTD_CH": f_qtd_ch, 
-                                        "QTD_M2": round(float(f_comp or 0) * float(f_alt or 0) * int(f_qtd_ch or 0), 3),
-                                        "ESP": f_esp if f_esp else "", "COMP": f_comp if f_comp else "", "ALT": f_alt if f_alt else "",
-                                        "OPERADOR": f_operador.upper() if f_operador else "", "DIA_INICIO": f_dia_ini.strftime("%d/%m/%Y"),
-                                        "DIA_FIM": f_dia_fim.strftime("%d/%m/%Y"), "HORA_INICIO": h_ini.strftime("%H:%M"),
-                                        "HORA_FIM": h_fim.strftime("%H:%M"), "TEMPO_PROCESSO": f"{int(m_tot // 60):02d}:{int(m_tot % 60):02d}", "TURNO": "D"
-                                    }
-                                    if "carrinho_ap" not in st.session_state: st.session_state["carrinho_ap"] = []
-                                    st.session_state["carrinho_ap"].append((novo_rec, par_finais, ins_finais))
-                                    st.toast(f"📍 Bloco {f_bloco} no carrinho!", icon="🛒")
-                                    st.rerun()
 
                     if btn_carrinho:
                         # Validação e lógica de salvamento (mesma lógica do callback anterior)
@@ -882,9 +841,9 @@ with tab_apontamento:
                                     st.error(f"❌ Soma das paradas ({int(total_mp)} min) é maior que o tempo total de processo ({int(m_tot)} min).")
                                 else:
                                     # ... resto da lógica de sucesso ...
-                                    # Calcula Turno (D = 07:00 as 19:00, N = resto)
+                                    # Calcula Turno (N = 22:00 as 06:59, D = resto)
                                     f_turno = "D"
-                                    if h_ini.hour >= 19 or h_ini.hour < 7:
+                                    if h_ini.hour >= 22 or h_ini.hour < 7:
                                         f_turno = "N"
 
                                     novo_rec = {
@@ -1310,8 +1269,8 @@ def gui_select_file(current_path, is_excel=True):
 with tab_analises:
     st.header("📈 Análises e Indicadores de Produção")
     
-    # Recarrega dados para garantir frescor
-    df_raw_an = dm.get_data()
+    # Recarrega dados do APONTAMENTO (não da programação) para análise real de produtividade
+    df_raw_an = dm.get_all_apontamentos()
     mapping_an = dm._get_system_mapping()
     
     def find_col_an(key):
@@ -1319,7 +1278,8 @@ with tab_analises:
             if alias.upper() in df_raw_an.columns: return alias.upper()
         return None
 
-    c_dt = find_col_an("DATA_REG")
+    c_dt = find_col_an("DIA_INICIO")  # Considerar data do PROCESSO
+    c_hr = find_col_an("HORA_INICIO")
     c_m2 = find_col_an("QTD_M2")
     c_ch = find_col_an("QTD_CH")
     c_st = find_col_an("SETOR_AP")
@@ -1345,68 +1305,222 @@ with tab_analises:
         df_an[c_dt] = pd.to_datetime(df_an[c_dt], errors='coerce', dayfirst=True)
         df_an = df_an.dropna(subset=[c_dt])
         
-        # Filtro de datas
-        hoje = datetime.now()
-        if periodo == "Últimos 7 dias": df_an = df_an[df_an[c_dt] >= hoje - timedelta(days=7)]
-        elif periodo == "Últimos 30 dias": df_an = df_an[df_an[c_dt] >= hoje - timedelta(days=30)]
-        elif periodo == "Mês Atual": df_an = df_an[(df_an[c_dt].dt.month == hoje.month) & (df_an[c_dt].dt.year == hoje.year)]
+        # Ajuste do Dia de Produção (Regra: 07:00 as 07:00)
+        def get_dia_producao(row):
+            dt = row[c_dt]
+            if pd.isna(dt): return None
+            val_hr = row.get(c_hr)
+            try:
+                # Extrai a hora independente se é objeto time ou string
+                if hasattr(val_hr, 'hour'):
+                    hour = val_hr.hour
+                else:
+                    hour = int(str(val_hr).split(":")[0])
+                
+                if hour < 7:
+                    return (dt - timedelta(days=1)).date()
+                return dt.date()
+            except:
+                return dt.date()
         
-        # Identificação de Refeito
-        df_an["REFEITO"] = df_an[c_pr].astype(str).str.upper().str.contains("REPASSE|RETOQUE|REFEITO|REPROCESSO")
-        df_an["TIPO_PROD"] = df_an["REFEITO"].map({True: "Refeito/Repasse", False: "Produção Normal"})
+        df_an["DIA_PROD"] = df_an.apply(get_dia_producao, axis=1)
+        df_an = df_an.dropna(subset=["DIA_PROD"])
 
-        # Métricas Globais
+        # Filtro de datas (usando o Dia de Produção calculado)
+        hoje = datetime.now().date()
+        if periodo == "Últimos 7 dias": 
+            df_an = df_an[df_an["DIA_PROD"] >= hoje - timedelta(days=7)]
+        elif periodo == "Últimos 30 dias": 
+            df_an = df_an[df_an["DIA_PROD"] >= hoje - timedelta(days=30)]
+        elif periodo == "Mês Atual": 
+            df_an = df_an[pd.to_datetime(df_an["DIA_PROD"]).dt.month == hoje.month]
+        
+        # Filtro Específico: RETOQUE não entra na análise de produtividade
+        df_an = df_an[~df_an[c_pr].astype(str).str.upper().str.contains("RETOQUE")]
+        
+        # Identificação de Refeito (Sem Retoque)
+        df_an["REFEITO"] = df_an[c_pr].astype(str).str.upper().str.contains("REPASSE|REFEITO|REPROCESSO")
+        df_an["TIPO_PROD"] = df_an["REFEITO"].map({True: "Refeito", False: "Normal"})
+
+        # Seletor de Métrica para o Board
+        st.write("---")
+        c_opt1, c_opt2 = st.columns([2, 2])
+        with c_opt1:
+            metrica_board = st.radio("Métrica para o Board:", ["Chapas", "M²"], horizontal=True)
+            col_valor = c_ch if metrica_board == "Chapas" else c_m2
+
+        # Métricas Globais (Atualizadas após filtro de Retoque)
         m_tot_m2 = df_an[c_m2].sum()
         m_tot_ch = df_an[c_ch].sum()
-        m_refeito = df_an[df_an["REFEITO"]][c_m2].sum()
-        p_refeito = (m_refeito / m_tot_m2 * 100) if m_tot_m2 > 0 else 0
+        m_refeito_m2 = df_an[df_an["REFEITO"]][c_m2].sum()
+        m_refeito_ch = df_an[df_an["REFEITO"]][c_ch].sum()
+        p_refeito = (m_refeito_m2 / m_tot_m2 * 100) if m_tot_m2 > 0 else 0
 
         c_met1, c_met2, c_met3, c_met4 = st.columns(4)
-        c_met1.metric("Produção Total (M²)", f"{m_tot_m2:,.2f}")
-        c_met2.metric("Total Chapas", f"{int(m_tot_ch)}")
-        c_met3.metric("Refeito (M²)", f"{m_refeito:,.2f}")
-        c_met4.metric("% Refeito", f"{p_refeito:.1f}%")
+        if metrica_board == "Chapas":
+            c_met1.metric("Total Chapas", f"{int(m_tot_ch)}")
+            c_met2.metric("Produção Normal", f"{int(df_an[df_an['REFEITO']==False][c_ch].sum())}")
+            c_met3.metric("Produção Refeito", f"{int(m_refeito_ch)}")
+        else:
+            c_met1.metric("Total Produzido (M²)", f"{m_tot_m2:,.2f}")
+            c_met2.metric("Produção Normal", f"{df_an[df_an['REFEITO']==False][c_m2].sum():,.2f}")
+            c_met3.metric("Produção Refeito", f"{m_refeito_m2:,.2f}")
+            
+        c_met4.metric("% Refeito (M²)", f"{p_refeito:.1f}%")
 
         st.divider()
         
-        # Gráficos
+        # --- O BOARD PRINCIPAL (Estilo Excel) ---
+        st.subheader(f"📊 Board de Produtividade Diária ({metrica_board})")
+        st.caption("Comparativo por Máquina, Turno e Tipo de Produção (Considerando Dia de Produção 07h-07h)")
+        
+        try:
+            # Pivot table base numérica para cálculos
+            df_base_pivot = df_an.pivot_table(
+                index="DIA_PROD", 
+                columns=[c_st, c_tr, "TIPO_PROD"], 
+                values=col_valor, 
+                aggfunc='sum'
+            ).fillna(0)
+            
+            # Pegamos todas as combinações únicas de (Setor, Turno) existentes nos dados
+            cols_originais = df_base_pivot.columns
+            combinacoes = sorted(list(set([(c[0], c[1]) for c in cols_originais])))
+            
+            df_final = pd.DataFrame(index=df_base_pivot.index)
+            
+            for st_val, tr_val in combinacoes:
+                # Busca valores de Normal e Refeito com fallback para zero
+                col_norm = (st_val, tr_val, "Normal")
+                col_refe = (st_val, tr_val, "Refeito")
+                
+                vals_norm = df_base_pivot[col_norm] if col_norm in df_base_pivot.columns else pd.Series(0, index=df_base_pivot.index)
+                vals_refe = df_base_pivot[col_refe] if col_refe in df_base_pivot.columns else pd.Series(0, index=df_base_pivot.index)
+                
+                # Cria a coluna formatada: "Normal (Refeito)"
+                if metrica_board == "Chapas":
+                    df_final[f"{st_val} / {tr_val}"] = [
+                        f"{int(n)} ({int(r)})" if (n > 0 or r > 0) else "-" 
+                        for n, r in zip(vals_norm, vals_refe)
+                    ]
+                else:
+                    df_final[f"{st_val} / {tr_val}"] = [
+                        f"{n:,.1f} ({r:,.1f})" if (n > 0 or r > 0) else "-" 
+                        for n, r in zip(vals_norm, vals_refe)
+                    ]
+            
+            # Adiciona Total Geral (Numérico)
+            if metrica_board == "Chapas":
+                df_final["TOTAL GERAL"] = [f"{int(t)}" for t in df_base_pivot.sum(axis=1)]
+            else:
+                df_final["TOTAL GERAL"] = [f"{t:,.1f}" for t in df_base_pivot.sum(axis=1)]
+            
+            # Ordenação por data decrescente
+            df_final = df_final.sort_index(ascending=False)
+            df_final.index = [d.strftime('%d/%m/%Y') for d in df_final.index]
+            
+            st.dataframe(df_final, use_container_width=True)
+            st.caption("📌 Legenda das células: **Produção Normal (Produção Refeita)**. Traço (-) indica sem produção.")
+            
+        except Exception as e:
+            st.info(f"Aguardando dados suficientes para gerar o board simplificado. (Erro: {e})")
+
+        st.divider()
+        
+        # Gráficos de Apoio
+        st.write("---")
         c_gr1, c_gr2 = st.columns(2)
         
         with c_gr1:
-            st.subheader("📅 Produção Diária (M²)")
-            df_diario = df_an.groupby(df_an[c_dt].dt.date)[c_m2].sum()
-            st.bar_chart(df_diario)
+            st.subheader(f"📅 Evolução Diária ({metrica_board})")
+            # Preparação dos dados para o Altair
+            df_evol = df_an.groupby(["DIA_PROD", "TIPO_PROD"])[col_valor].sum().reset_index()
+            df_evol["DIA"] = df_evol["DIA_PROD"].apply(lambda d: d.strftime('%d/%m'))
+            
+            # Gráfico de Barras Empilhadas
+            base_evol = alt.Chart(df_evol).encode(
+                x=alt.X('DIA:N', title='Dia', sort=None),
+                y=alt.Y(f'{col_valor}:Q', title=metrica_board),
+                color=alt.Color('TIPO_PROD:N', title='Tipo', scale=alt.Scale(domain=['Normal', 'Refeito'], range=['#00CC96', '#EF553B']))
+            )
+            
+            bars_evol = base_evol.mark_bar()
+            
+            # Valores por Segmento (Legibilidade: Branco com contorno Preto fino)
+            text_segments = base_evol.mark_text(
+                align='center',
+                baseline='middle',
+                color='white',
+                fontSize=18,
+                fontWeight='bold',
+                stroke='black',
+                strokeWidth=0.8
+            ).encode(
+                text=alt.Text(f'{col_valor}:Q', format='.0f' if metrica_board == 'Chapas' else '.1f'),
+                detail='TIPO_PROD:N'
+            )
+            
+            # Valor Total no topo (Branco com contorno Preto para Modo Claro/Escuro)
+            text_totals = alt.Chart(df_evol).mark_text(
+                align='center',
+                baseline='bottom',
+                dy=-10,
+                fontSize=20,
+                fontWeight='bold',
+                color='white',
+                stroke='black',
+                strokeWidth=0.8
+            ).encode(
+                x=alt.X('DIA:N', sort=None),
+                y=alt.Y(f'sum({col_valor}):Q'),
+                text=alt.Text(f'sum({col_valor}):Q', format='.0f' if metrica_board == 'Chapas' else '.1f')
+            )
+            
+            st.altair_chart((bars_evol + text_segments + text_totals).properties(height=500), use_container_width=True)
             
         with c_gr2:
-            st.subheader("🏢 Produção por Máquina (M²)")
-            df_maq = df_an.groupby(c_st)[c_m2].sum().sort_values(ascending=False)
-            st.bar_chart(df_maq)
-
-        st.divider()
-        
-        c_gr3, c_gr4 = st.columns(2)
-        with c_gr3:
-            st.subheader("🌙 Produção por Turno")
-            df_turno_plot = df_an.groupby(c_tr)[c_m2].sum()
-            st.bar_chart(df_turno_plot)
+            st.subheader(f"🌙 Produtividade por Turno ({metrica_board})")
+            df_turno = df_an.groupby([c_tr, "TIPO_PROD"])[col_valor].sum().reset_index()
             
-        with c_gr4:
-            st.subheader("🔄 Normal vs Refeito")
-            df_tipo_plot = df_an.groupby("TIPO_PROD")[c_m2].sum()
-            st.bar_chart(df_tipo_plot)
-
-        st.divider()
-        st.subheader("📋 Detalhamento por Data e Máquina")
-        try:
-            df_pivot = df_an.pivot_table(
-                index=df_an[c_dt].dt.date, 
-                columns=[c_st, c_tr], 
-                values=c_m2, 
-                aggfunc='sum'
-            ).fillna(0)
-            st.dataframe(df_pivot, use_container_width=True)
-        except:
-            st.info("Não foi possível gerar a tabela dinâmica com os dados atuais.")
+            base_turno = alt.Chart(df_turno).encode(
+                x=alt.X(f'{c_tr}:N', title='Turno'),
+                y=alt.Y(f'{col_valor}:Q', title=metrica_board),
+                color=alt.Color('TIPO_PROD:N', title='Tipo', scale=alt.Scale(domain=['Normal', 'Refeito'], range=['#00CC96', '#EF553B']))
+            )
+            
+            bars_turno = base_turno.mark_bar()
+            
+            # Valores por Segmento
+            text_seg_turno = base_turno.mark_text(
+                align='center',
+                baseline='middle',
+                color='white',
+                fontSize=18,
+                fontWeight='bold',
+                stroke='black',
+                strokeWidth=0.8
+            ).encode(
+                text=alt.Text(f'{col_valor}:Q', format='.0f' if metrica_board == 'Chapas' else '.1f'),
+                detail='TIPO_PROD:N'
+            )
+            
+            # Totais por Turno (Branco com contorno Preto)
+            text_tot_turno = alt.Chart(df_turno).mark_text(
+                align='center',
+                baseline='bottom',
+                dy=-10,
+                fontSize=20,
+                fontWeight='bold',
+                color='white',
+                stroke='black',
+                strokeWidth=0.8
+            ).encode(
+                x=alt.X(f'{c_tr}:N'),
+                y=alt.Y(f'sum({col_valor}):Q'),
+                text=alt.Text(f'sum({col_valor}):Q', format='.0f' if metrica_board == 'Chapas' else '.1f')
+            )
+            
+            st.altair_chart((bars_turno + text_seg_turno + text_tot_turno).properties(height=500), use_container_width=True)
 
 # ----------------- ABA 7: OPÇÕES GERAIS -----------------
 with tab_config:

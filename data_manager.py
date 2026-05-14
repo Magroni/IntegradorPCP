@@ -80,10 +80,45 @@ def get_sheet_names(filepath: str):
 # LEITURA DE DADOS
 # ---------------------------------------------------------------------------
 
+def normalize_bloco(bloco):
+    """Padroniza o ID do bloco para string, removendo .0 e espaços."""
+    if pd.isna(bloco) or str(bloco).strip() == "" or str(bloco).lower() == "nan":
+        return ""
+    b_str = str(bloco).strip().upper()
+    if b_str.endswith(".0"):
+        b_str = b_str[:-2]
+    return b_str
+
+
 def get_data():
-    """Lê a aba de Programação do arquivo de Programação."""
+    """Lê a aba de Programação e autocompleta o SETOR se estiver vazio usando a Base de Dados."""
     try:
-        df = pd.read_excel(_get_db_file(), sheet_name=_get_sheet("SHEET_PROGRAMACAO"), engine="openpyxl")
+        db_file = _get_db_file()
+        sheet_prog = _get_sheet("SHEET_PROGRAMACAO")
+        sheet_base = _get_sheet("SHEET_BASE_DADOS")
+        
+        # Lê os dados principais
+        df = pd.read_excel(db_file, sheet_name=sheet_prog, engine="openpyxl")
+        
+        # --- LÓGICA DE AUTOCOMPLETAR SETOR (Self-Healing) ---
+        try:
+            df_base = pd.read_excel(db_file, sheet_name=sheet_base, engine="openpyxl")
+            if "PROCESSO" in df_base.columns and "SETOR" in df_base.columns:
+                # Cria dicionário Processo -> Setor
+                mapa_setor = df_base.dropna(subset=["PROCESSO", "SETOR"]).drop_duplicates("PROCESSO").set_index("PROCESSO")["SETOR"].to_dict()
+                
+                # Identifica onde o SETOR está vazio ou NaN
+                mask_vazio = df["SETOR"].isna() | (df["SETOR"].astype(str).str.strip() == "") | (df["SETOR"].astype(str).str.lower() == "nan")
+                
+                # Preenche apenas os vazios usando o mapa
+                df.loc[mask_vazio, "SETOR"] = df.loc[mask_vazio, "PROCESSO"].map(mapa_setor)
+        except Exception as e_base:
+            print(f"Aviso: Não foi possível carregar o mapa de setores da Base de Dados: {e_base}")
+        # ----------------------------------------------------
+
+        # Normalização crítica de BLOCO para evitar bugs de identificação
+        if "BLOCO" in df.columns:
+            df["BLOCO"] = df["BLOCO"].apply(normalize_bloco)
         return df
     except Exception as e:
         print(f"Erro ao carregar os dados: {e}")
@@ -99,7 +134,13 @@ def get_headers():
         for col in range(1, ws.max_column + 1):
             val = ws.cell(row=1, column=col).value
             if val:
-                headers[str(val).strip()] = col
+                # Normalização de cabeçalhos para evitar erros com 'VOLUME M²' e outros
+                h_name = str(val).strip()
+                headers[h_name] = col
+                # Fallback para Volume M2 sem o símbolo especial se necessário
+                if "VOLUME M" in h_name.upper():
+                    headers["VOLUME M²"] = col
+                    headers["VOLUME M2"] = col
         wb.close()
         return headers
     except Exception as e:
@@ -552,7 +593,29 @@ def get_apontamentos_do_dia(data_alvo_date):
         return pd.DataFrame()
 
 
-def add_apontamento(record_dict):
+def get_all_apontamentos():
+    """Lê todos os registros da aba de Apontamento (DB)."""
+    try:
+        file_path = _get_apontamento_file()
+        sheet_name = _get_sheet("SHEET_AP_BD")
+        
+        # Lê as primeiras 20 linhas para encontrar o cabeçalho dinamicamente
+        df_scan = pd.read_excel(file_path, sheet_name=sheet_name, header=None, nrows=20, engine="openpyxl")
+        header_row_idx = 0
+        for i, row in df_scan.iterrows():
+            row_vals = [str(v).strip().upper() for v in row.values]
+            if "PROCESSO" in row_vals or "DATA REG" in row_vals or "MATERIAL+BLOCO" in row_vals:
+                header_row_idx = i
+                break
+        
+        df = pd.read_excel(file_path, sheet_name=sheet_name, header=header_row_idx, engine="openpyxl")
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        return df
+    except Exception as e:
+        print(f"Erro ao ler todos os apontamentos: {e}")
+        return pd.DataFrame()
+
+
     """
     Adiciona um novo registro na aba 'BD' do arquivo de Apontamento.
     Busca dinamicamente o cabeçalho e insere na próxima linha vazia.

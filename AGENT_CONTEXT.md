@@ -143,9 +143,9 @@ validar_sequencia_bloco(df, bloco, idx, nova_data)
 
 4. **Bloqueio Visual na Fila:** A coluna "Liberado?" na Aba 3 é **temporal** — ela compara a data do processo anterior com a **Data Alvo** selecionada no topo da tela. Um processo bloqueado pode aparecer como 🟢 Sim se a Data Alvo for futura o suficiente.
 
-5. **Extração de BLOCO do Apontamento:** O campo `Nº BLOCO` frequentemente está vazio. Nesses casos, o sistema extrai o número do campo `MATERIAL+BLOCO` (ex: `"ALPINUS-1234"` → `"1234"`).
+5. **Self-Healing de Máquinas (SETOR)**: Se a coluna `SETOR` estiver vazia no Excel (ex: fórmula não calculada), o `data_manager.py` autocompleta o valor cruzando o `PROCESSO` com a aba `BASE DE DADOS`. Isso garante que os filtros de máquina sempre funcionem.
 
-6. **Normalização de nomes de processo:** Para cruzar programação × apontamento, o sistema usa a tabela `BASE DADOS` do arquivo de Apontamento como dicionário de equivalência (processo_completo → resumido).
+6. **Gestão de Programação (Remoção)**: É possível remover blocos de um dia específico apenas desmarcando-os na Janela de Programações e clicando em "Confirmar Alterações". O sistema limpa a data no Excel e volta o status para "NÃO REALIZADO".
 
 ---
 
@@ -170,6 +170,10 @@ O arquivo `config.json` na raiz do projeto controla os caminhos:
 
 | Data | Alteração |
 |------|-----------|
+| 2026-05-14 | **Self-Healing de Setores**: Autopreenchimento de máquinas baseado na Base de Dados (corrige erros de fórmulas do Excel) |
+| 2026-05-14 | **Clusterização UI**: Janela de Programação organizada em blocos lógicos (resiliência a erros de escopo e NameError) |
+| 2026-05-14 | **Remoção de Agendamentos**: Interface permite desmarcar blocos para limpar datas e resetar status no banco de dados |
+| 2026-05-14 | **Normalização de Blocos**: IDs forçados para String para evitar bugs de tipo `int` vs `str` |
 | 2026-05-14 | **Indicadores (Aba 6)**: Dashboard de produção diária, por turno, máquina e análise de Refeito |
 | 2026-05-14 | **Resinagem Manual**: Substituída lista fixa por entrada manual de nome, catalisador e proporção |
 | 2026-05-14 | **Validação Estrita**: Paradas agora devem estar contidas no intervalo do processo |
