@@ -1009,15 +1009,23 @@ with tab_apontamento:
         setores_ap_todos = sorted(setores_prog | setores_ap_pre)
         maq_ap_sel = st.selectbox("Filtrar por Máquina", ["Todos"] + setores_ap_todos, key="maq_ap_v2")
 
-    if st.button("🔄 Carregar/Atualizar Apontamentos", key="btn_carregar_ap_v2", type="primary", use_container_width=True):
+    # Função para carregar dados
+    def force_load_ap():
         with st.spinner(f"Lendo apontamentos de {data_ap_sel.strftime('%d/%m/%Y')}..."):
             st.session_state["df_ap_cache"] = dm.get_apontamentos_do_dia(data_ap_sel)
             st.session_state["last_ap_date"] = data_ap_sel
-            # Atualiza máquinas extras
             if not st.session_state["df_ap_cache"].empty and "SETOR_AP" in st.session_state["df_ap_cache"].columns:
                 extras = set(str(x).strip() for x in st.session_state["df_ap_cache"]["SETOR_AP"].unique() if str(x).strip() not in ["", "nan"])
                 st.session_state["ap_setores_extras"] = extras
-            st.toast("Dados atualizados!", icon="✅")
+
+    # Gatilho 1: Mudança de Data (Automático)
+    if "last_ap_date" not in st.session_state or st.session_state["last_ap_date"] != data_ap_sel:
+        force_load_ap()
+
+    # Gatilho 2: Botão de Refresh (Manual)
+    if st.button("🔄 Atualizar Base de Apontamentos", use_container_width=True):
+        force_load_ap()
+        st.toast("Dados atualizados!", icon="✅")
 
     df_ap = st.session_state.get("df_ap_cache", pd.DataFrame())
     data_ap_str = data_ap_sel.strftime("%d/%m/%Y")
