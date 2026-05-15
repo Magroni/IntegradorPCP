@@ -1186,6 +1186,37 @@ with tab_apontamento:
                 st.dataframe(df_ap_extras[["BLOCO", "PROCESSO_APONTADO", "SETOR_AP", "QTD_CH"]],
                                 hide_index=True, use_container_width=True)
 
+    # --- INVESTIGAÇÃO DE BLOCO (LADO A LADO) ---
+    st.write("---")
+    with st.expander("🔍 Investigar Bloco Específico (Confronto Direto)", expanded=False):
+        c_inv1, c_inv2 = st.columns([3, 1])
+        with c_inv1:
+            bloco_inv = st.text_input("Digite o número do bloco para confrontar:", placeholder="Ex: 7179", key="bloco_inv_search")
+        
+        if bloco_inv:
+            b_norm_inv = dm.normalize_bloco(bloco_inv)
+            
+            col_res1, col_res2 = st.columns(2)
+            
+            with col_res1:
+                st.markdown(f"**📅 Programado (PCP) para {data_ap_str}:**")
+                df_prog_inv = df_prog_dia[df_prog_dia["BLOCO"].apply(dm.normalize_bloco) == b_norm_inv]
+                if not df_prog_inv.empty:
+                    st.dataframe(df_prog_inv[["SETOR", "PROCESSO", "QTD. CHAPAS", "STATUS PROCESSO"]], use_container_width=True, hide_index=True)
+                else:
+                    st.warning("Nada programado para este bloco nesta data.")
+            
+            with col_res2:
+                st.markdown(f"**🏭 Apontado (Fábrica) em {data_ap_str}:**")
+                if not df_ap.empty:
+                    df_ap_inv = df_ap[df_ap["BLOCO"].apply(dm.normalize_bloco) == b_norm_inv]
+                    if not df_ap_inv.empty:
+                        st.dataframe(df_ap_inv[["SETOR_AP", "PROCESSO_APONTADO", "QTD_CH"]], use_container_width=True, hide_index=True)
+                    else:
+                        st.warning("Nenhum apontamento encontrado para este bloco nesta data.")
+                else:
+                    st.error("Base de apontamentos não carregada.")
+
 
 with tab_export:
     st.header("🖨️ Exportação para o Chão de Fábrica")
