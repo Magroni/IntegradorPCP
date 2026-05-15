@@ -510,7 +510,8 @@ def get_mapa_resumido_processos():
 
 def get_apontamentos_do_dia(data_alvo_date):
     """
-    Lê a aba de apontamentos diários do arquivo de Apontamento (cabeçalho na linha 7)
+    e retorna um DataFrame filtrado pela data_alvo_date.
+    """
     try:
         # Busca dinâmica do cabeçalho (procura em até 100 linhas)
         df_full = pd.read_excel(_get_apontamento_file(), sheet_name=_get_sheet("SHEET_AP_BD"), header=None, engine="openpyxl", nrows=100)
