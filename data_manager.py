@@ -521,42 +521,45 @@ def get_apontamentos_do_dia(data_alvo_date):
         df_raw = pd.read_excel(file_path, sheet_name=sheet_name, header=None, engine="openpyxl")
         if df_raw.empty: return pd.DataFrame()
 
-        # Dicionário de mapeamento de interesses (nomes que aparecem nas colunas)
+        # Dicionário de mapeamento com prioridade (a ordem dentro da lista importa!)
         targets = {
-            "DATA": ["DATA INICIO", "DATA INÍCIO", "DATA DE INÍCIO", "INÍCIO", "DATA", "LANÇAMENTO", "DATA REG"],
+            "DATA": ["DATA REALIZADA", "DATA REALIZADO", "DATA INÍCIO", "DATA INICIO", "DATA DE INÍCIO", "DATA", "LANÇAMENTO", "DATA REG"],
             "BLOCO": ["BLOCO", "NUMERO DO BLOCO", "Nº BLOCO", "IDENTIFICAÇÃO", "CÓDIGO"],
             "PROCESSO": ["PROCESSO", "SERVIÇO", "OPERACAO", "ETAPA", "PROC"],
             "SETOR": ["SETOR", "MAQUINA", "MÁQUINA", "LOCAL", "EQUIPAMENTO"],
             "QTD": ["QTD", "CHAPAS", "QUANTIDADE", "CH"]
         }
 
-        # 1. Identifica a linha do cabeçalho e mapeia colunas
+        # 1. Identifica a linha do cabeçalho e mapeia colunas com prioridade
         idx_map = {}
         header_row = 0
         header_found = False
         
-        # Varre as primeiras 100 linhas procurando o cabeçalho
         for i in range(min(100, len(df_raw))):
             row = df_raw.iloc[i]
             row_str = [str(v).strip().upper() for v in row.values if pd.notna(v)]
             
-            # Se achou pelo menos 2 colunas-chave na mesma linha, achamos o cabeçalho
-            # Prioridade absoluta para DATA INÍCIO e BLOCO
+            # Se encontrar pelo menos 2 colunas-chave, achamos o cabeçalho
             matches = 0
             for key, aliases in targets.items():
                 if any(any(alias in v for alias in aliases) for v in row_str):
                     matches += 1
             
             if matches >= 2:
-                # Mapeia qual índice é cada coluna baseado nos aliases
-                for col_idx, val in enumerate(row.values):
-                    v_up = str(val).strip().upper()
-                    for key, aliases in targets.items():
-                        if any(alias == v_up or alias in v_up for alias in aliases):
-                            if key not in idx_map: idx_map[key] = col_idx
-                
                 header_row = i
                 header_found = True
+                
+                # Mapeamento com prioridade: para cada chave, procura o melhor alias disponível na linha
+                for key, aliases in targets.items():
+                    for alias in aliases:
+                        # Procura o alias exato nas colunas desta linha
+                        for col_idx, val in enumerate(row.values):
+                            v_up = str(val).strip().upper()
+                            if alias == v_up or (len(alias) > 4 and alias in v_up):
+                                if key not in idx_map:
+                                    idx_map[key] = col_idx
+                                    break
+                        if key in idx_map: break # Já achou o melhor alias para esta chave
                 break
         
         if not header_found: return pd.DataFrame()
