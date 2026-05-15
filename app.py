@@ -1002,62 +1002,41 @@ with tab_apontamento:
 
     c_ap1, c_ap2 = st.columns(2)
     with c_ap1:
-        data_apontamento = st.date_input("Data de Produção", value=datetime.now(), format="DD/MM/YYYY", key="data_ap")
+        data_ap_sel = st.date_input("Data de Produção", value=datetime.now(), format="DD/MM/YYYY", key="data_ap_v2")
     with c_ap2:
-        # Filtro de máquinas unificado: nossa base + apontamento
         setores_prog = set(str(x) for x in df["SETOR"].unique() if str(x) not in ["", "nan"])
-        setores_ap_pre = set()
-        if "ap_setores_extras" in st.session_state:
-            setores_ap_pre = st.session_state["ap_setores_extras"]
+        setores_ap_pre = st.session_state.get("ap_setores_extras", set())
         setores_ap_todos = sorted(setores_prog | setores_ap_pre)
-        maq_ap = st.selectbox("Filtrar por Máquina", ["Todos"] + setores_ap_todos, key="maq_ap")
+        maq_ap_sel = st.selectbox("Filtrar por Máquina", ["Todos"] + setores_ap_todos, key="maq_ap_v2")
 
-    if st.button("🔄 Carregar Apontamentos do Dia", key="btn_carregar_ap", type="primary"):
-        st.session_state["ap_data"] = data_apontamento
-        st.session_state["ap_maq"] = maq_ap
+    # Carregamento dos dados do arquivo externo (Apontamentos)
+    # Usamos cache ou session_state para não reler o Excel a cada clique, apenas quando a data mudar
+    if "last_ap_date" not in st.session_state or st.session_state["last_ap_date"] != data_ap_sel:
+        with st.spinner(f"Lendo apontamentos de {data_ap_sel.strftime('%d/%m/%Y')}..."):
+            st.session_state["df_ap_cache"] = dm.get_apontamentos_do_dia(data_ap_sel)
+            st.session_state["last_ap_date"] = data_ap_sel
+            # Atualiza máquinas extras
+            if not st.session_state["df_ap_cache"].empty and "SETOR_AP" in st.session_state["df_ap_cache"].columns:
+                extras = set(str(x).strip() for x in st.session_state["df_ap_cache"]["SETOR_AP"].unique() if str(x).strip() not in ["", "nan"])
+                st.session_state["ap_setores_extras"] = extras
 
-    if "ap_data" in st.session_state:
-        data_ap_sel = st.session_state["ap_data"]
-        maq_ap_sel  = st.session_state["ap_maq"]
-        data_ap_str = data_ap_sel.strftime("%d/%m/%Y")
+    df_ap = st.session_state.get("df_ap_cache", pd.DataFrame())
+    data_ap_str = data_ap_sel.strftime("%d/%m/%Y")
 
-        with st.spinner(f"Lendo apontamentos de {data_ap_str}..."):
-            df_ap = dm.get_apontamentos_do_dia(data_ap_sel)
-        
-        # Guardar máquinas extras do apontamento no session_state para o filtro
-        if not df_ap.empty and "SETOR_AP" in df_ap.columns:
-            setores_extras = set(str(x).strip() for x in df_ap["SETOR_AP"].unique() if str(x).strip() not in ["", "nan"])
-            st.session_state["ap_setores_extras"] = setores_extras
+    # --- FILTRAGEM DA PROGRAMAÇÃO (USANDO PARSE_DT ROBUSTO) ---
+    def is_same_day(d_val, target_date):
+        dt = parse_dt(d_val)
+        return dt is not None and dt.date() == target_date
 
-        # Programação do dia (inclui já realizados para visão completa)
-        def ap_date_ok(d_val):
-            if pd.isna(d_val) or str(d_val).strip() in ["", "nan", "NaT"]: return False
-            try:
-                if isinstance(d_val, pd.Timestamp): return d_val.date() == data_ap_sel
-                if "/" in str(d_val): return pd.to_datetime(str(d_val), format="%d/%m/%Y").date() == data_ap_sel
-                return pd.to_datetime(str(d_val)).date() == data_ap_sel
-            except: return False
-        
-        # Pendentes agendados para o dia
-        df_pendentes = df[df["STATUS PROCESSO"] != "REALIZADO"].copy()
-        df_pendentes = df_pendentes[df_pendentes["DATA"].apply(ap_date_ok)]
-        
-        # Já realizados cuja DATA REALIZADA é o dia selecionado
-        df_realizados_dia = df[df["STATUS PROCESSO"] == "REALIZADO"].copy()
-        def ap_data_real_ok(d_val):
-            if pd.isna(d_val) or str(d_val).strip() in ["", "nan", "NaT"]: return False
-            try:
-                if isinstance(d_val, pd.Timestamp): return d_val.date() == data_ap_sel
-                if "/" in str(d_val): return pd.to_datetime(str(d_val), format="%d/%m/%Y").date() == data_ap_sel
-                return pd.to_datetime(str(d_val)).date() == data_ap_sel
-            except: return False
-        df_realizados_dia = df_realizados_dia[df_realizados_dia["DATA REALIZADA"].apply(ap_data_real_ok)]
-        
-        # Une os dois grupos
-        df_prog_dia = pd.concat([df_pendentes, df_realizados_dia], ignore_index=False)
-        
-        if maq_ap_sel != "Todos":
-            df_prog_dia = df_prog_dia[df_prog_dia["SETOR"] == maq_ap_sel]
+    # Filtra programação e realizados do dia
+    df_prog_dia = df[df["DATA"].apply(lambda x: is_same_day(x, data_ap_sel))].copy()
+    df_real_dia = df[(df["STATUS PROCESSO"] == "REALIZADO") & (df["DATA REALIZADA"].apply(lambda x: is_same_day(x, data_ap_sel)))].copy()
+    
+    # Une os dois grupos (evitando duplicatas se o agendado for igual ao realizado)
+    df_prog_dia = pd.concat([df_prog_dia, df_real_dia], ignore_index=False).drop_duplicates()
+    
+    if maq_ap_sel != "Todos":
+        df_prog_dia = df_prog_dia[df_prog_dia["SETOR"] == maq_ap_sel]
 
         # Mapa de bloco -> SETOR_AP do apontamento (para preencher máquinas sem SETOR)
         bloco_para_setor_ap = {}
