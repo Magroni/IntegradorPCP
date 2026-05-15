@@ -515,10 +515,13 @@ def get_apontamentos_do_dia(data_alvo_date):
     try:
         # Busca dinâmica do cabeçalho (procura em até 100 linhas)
         df_full = pd.read_excel(_get_apontamento_file(), sheet_name=_get_sheet("SHEET_AP_BD"), header=None, engine="openpyxl", nrows=100)
+        # Lista de todos os aliases para detecção rápida
+        todos_aliases = ["DATA REG", "DATA", "DATA_REG", "DATA DO APONTAMENTO", "DATA LANÇAMENTO", "LANÇAMENTO", "DATA CADASTRO", "DATA_APONTAMENTO", "PROCESSO", "PROC", "PROCESSO_APONTADO", "ETAPA", "OPERACAO", "SERVIÇO", "BLOCO", "NUMERO DO BLOCO", "Nº BLOCO", "NUM BLOCO", "N BLOCO", "ID BLOCO", "IDENTIFICAÇÃO", "CÓDIGO"]
         header_row = 6 # fallback padrão
         for i, row in df_full.iterrows():
             row_vals = [str(v).strip().upper() for v in row.values if pd.notna(v)]
-            if "PROCESSO" in row_vals or "DATA REG" in row_vals or "MATERIAL+BLOCO" in row_vals or "BLOCO" in row_vals:
+            # Se encontrar pelo menos 2 colunas conhecidas na mesma linha, achamos o cabeçalho
+            if sum(1 for v in row_vals if v in todos_aliases) >= 2:
                 header_row = i
                 break
         
@@ -571,13 +574,12 @@ def get_apontamentos_do_dia(data_alvo_date):
 
         def extrair_bloco(row):
             b = row.get("BLOCO_RAW")
-            if pd.notna(b) and str(b).strip() not in ["", "nan", "None"]:
-                return str(b).strip().split(".")[0].upper()
-            
-            mat_bloco = str(row.get("MAT_BLOCO", "")).strip()
-            if "-" in mat_bloco:
-                return mat_bloco.rsplit("-", 1)[-1].strip().split(".")[0].upper()
-            return ""
+            if pd.isna(b) or str(b).strip() in ["", "nan", "None"]:
+                mat_bloco = str(row.get("MAT_BLOCO", ""))
+                if "-" in mat_bloco: b = mat_bloco.rsplit("-", 1)[-1]
+                else: return ""
+            # Limpeza radical: pega só os números antes do ponto e limpa espaços
+            return str(b).strip().split(".")[0].upper()
 
         df_dia["BLOCO"] = df_dia.apply(extrair_bloco, axis=1)
 
