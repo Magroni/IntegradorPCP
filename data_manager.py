@@ -536,14 +536,14 @@ def get_apontamentos_do_dia(data_alvo_date):
 
         # Mapeamento robusto (procura por nomes exatos ou parciais)
         mapping = {
-            "DATA_REG": ["DATA REG", "DATA", "DATA_REG"],
-            "MAT_BLOCO": ["MATERIAL+BLOCO", "MAT+BLO", "MATERIAL BLOCO"],
-            "NOME_MATERIAL": ["NOME MATERIAL", "MATERIAL", "NOME_MATERIAL"],
-            "BLOCO_RAW": ["NUMERO DO BLOCO", "Nº BLOCO", "NUM BLOCO", "BLOCO", "N BLOCO"],
-            "PROCESSO_APONTADO": ["PROCESSO", "PROC", "PROCESSO_APONTADO"],
-            "SETOR_AP": ["SETOR", "MAQUINA", "MÁQUINA", "SETOR_AP"],
-            "QTD_CH": ["QTD. CHAPAS", "QTD CH (SEM RET & REPASSE)", "QTD CH", "CHAPAS", "QTD_CH"],
-            "QTD_M2": ["QTD M² (SEM RET & REPASSE)", "QTD M²", "QTD M2", "METRAGEM", "QTD M", "QTD_M2"]
+            "DATA_REG": ["DATA REG", "DATA", "DATA_REG", "DATA DO APONTAMENTO", "DATA LANÇAMENTO"],
+            "MAT_BLOCO": ["MATERIAL+BLOCO", "MAT+BLO", "MATERIAL BLOCO", "MAT/BLO"],
+            "NOME_MATERIAL": ["NOME MATERIAL", "MATERIAL", "NOME_MATERIAL", "DESCRIÇÃO MATERIAL"],
+            "BLOCO_RAW": ["NUMERO DO BLOCO", "Nº BLOCO", "NUM BLOCO", "BLOCO", "N BLOCO", "ID BLOCO", "7179"],
+            "PROCESSO_APONTADO": ["PROCESSO", "PROC", "PROCESSO_APONTADO", "ETAPA", "OPERACAO"],
+            "SETOR_AP": ["SETOR", "MAQUINA", "MÁQUINA", "SETOR_AP", "LOCAL"],
+            "QTD_CH": ["QTD. CHAPAS", "QTD CH (SEM RET & REPASSE)", "QTD CH", "CHAPAS", "QTD_CH", "TOTAL CHAPAS"],
+            "QTD_M2": ["QTD M² (SEM RET & REPASSE)", "QTD M²", "QTD M2", "METRAGEM", "QTD M", "QTD_M2", "VOLUME M²"]
         }
 
         rename_dict = {}
@@ -558,12 +558,12 @@ def get_apontamentos_do_dia(data_alvo_date):
         if "DATA_REG" not in df.columns:
             # Tenta encontrar qualquer coluna que tenha 'DATA' no nome se não achou a exata
             for c in df.columns:
-                if "DATA" in c:
+                if "DATA" in c.upper():
                     df = df.rename(columns={c: "DATA_REG"})
                     break
 
-        df = df.dropna(subset=["DATA_REG"])
-        df["DATA_REG"] = pd.to_datetime(df["DATA_REG"], errors="coerce")
+        # Conversão robusta de data (DayFirst=True para Brasil)
+        df["DATA_REG"] = pd.to_datetime(df["DATA_REG"], errors="coerce", dayfirst=True)
         df = df.dropna(subset=["DATA_REG"])
 
         df_dia = df[df["DATA_REG"].dt.date == data_alvo_date].copy()
