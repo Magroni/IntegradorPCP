@@ -282,7 +282,15 @@ with tab_block:
             df_view_rot["Ordem"] = range(1, len(df_edit_roteiro) + 1)
             df_view_rot["Processo"] = df_edit_roteiro["PROCESSO"]
             df_view_rot["Máquina"] = df_edit_roteiro["SETOR"]
-            df_view_rot["Status"] = df_edit_roteiro["STATUS PROCESSO"].apply(lambda x: f"✅ {x}" if str(x).upper() == "REALIZADO" else (f"⏳ {x}" if str(x).upper() == "EM PROCESSO" else f"⚪ {x}"))
+            
+            # Lógica de Fidelidade para o Status Visual
+            def get_visual_status(row):
+                if is_finished(row): return "✅ REALIZADO"
+                st_txt = str(row.get("STATUS PROCESSO", "")).upper()
+                if st_txt == "EM PROCESSO": return "⏳ EM PROCESSO"
+                return "⚪ NÃO REALIZADO"
+                
+            df_view_rot["Status"] = df_edit_roteiro.apply(get_visual_status, axis=1)
             df_view_rot["Data Prog."] = df_edit_roteiro["DATA"].apply(format_data_view)
             df_view_rot["Data Realiz."] = df_edit_roteiro["DATA REALIZADA"].apply(format_data_view)
             df_view_rot["Observação"] = df_edit_roteiro["OBSERVACAO"]
