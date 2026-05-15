@@ -1059,29 +1059,30 @@ with tab_apontamento:
         if maq_ap_sel != "Todos":
             df_prog_dia = df_prog_dia[df_prog_dia["SETOR"] == maq_ap_sel]
 
-        def norm_bloco(b):
-            if pd.isna(b): return ""
-            # Remove .0 de floats, remove espaços e coloca em maiúsculo
-            return str(b).strip().split(".")[0].upper()
-
         # Mapa de bloco -> SETOR_AP do apontamento (para preencher máquinas sem SETOR)
         bloco_para_setor_ap = {}
         if not df_ap.empty and "SETOR_AP" in df_ap.columns:
             for _, r in df_ap.iterrows():
-                b = norm_bloco(r["BLOCO"])
-                s = str(r["SETOR_AP"]).strip()
-                if b and s and s != "nan":
-                    bloco_para_setor_ap[b] = s
-        
+                b_norm = dm.normalize_bloco(r["BLOCO"])
+                s_ap = str(r["SETOR_AP"]).strip()
+                if b_norm and s_ap and s_ap != "nan":
+                    bloco_para_setor_ap[b_norm] = s_ap
+
+        # Lógica de Cruzamento Melhorada
         match_flags = []
         match_info  = []
         maquinas_resolvidas = []  # setor efetivo (nossa base ou apontamento)
+        
         for _, row_prog in df_prog_dia.iterrows():
-            b = norm_bloco(row_prog["BLOCO"])
+            b = dm.normalize_bloco(row_prog["BLOCO"])
             proc_prog = str(row_prog["PROCESSO"]).strip().upper()
-            ja_realizado = str(row_prog.get("STATUS PROCESSO", "")).strip().upper() == "REALIZADO"
+            # Quebra o processo programado em palavras-chave (ex: TELAR/MANTAR -> [TELAR, MANTAR])
+            import re
+            keywords_prog = [k for k in re.split(r'[^A-Z0-9]', proc_prog) if len(k) > 2]
             
+            ja_realizado = str(row_prog.get("STATUS PROCESSO", "")).strip().upper() == "REALIZADO"
             setor_prog = str(row_prog.get("SETOR", "")).strip()
+            
             # Completa máquina a partir do apontamento se estiver vazio
             setor_efetivo = setor_prog if setor_prog and setor_prog != "nan" else bloco_para_setor_ap.get(b, "N/I")
             maquinas_resolvidas.append(setor_efetivo)
@@ -1093,20 +1094,30 @@ with tab_apontamento:
                 continue
                 
             if not df_ap.empty:
-                linhas_bloco = df_ap[df_ap["BLOCO"].apply(norm_bloco) == b]
+                # Busca flexível por bloco
+                linhas_bloco = df_ap[df_ap["BLOCO"].apply(dm.normalize_bloco) == b]
                 if not linhas_bloco.empty:
-                    match_proc = any(
-                        any(kw in str(r["RESUMIDO"]).upper() for kw in proc_prog.split())
-                        for _, r in linhas_bloco.iterrows()
-                    )
+                    # Busca inteligente por processo (qualquer keyword batendo)
+                    match_proc = False
+                    ap_row_encontrada = None
+                    
+                    for _, r_ap in linhas_bloco.iterrows():
+                        proc_ap_res = str(r_ap.get("RESUMIDO", "")).upper()
+                        proc_ap_full = str(r_ap.get("PROCESSO_APONTADO", "")).upper()
+                        
+                        # Se as palavras-chave baterem com o resumido ou o nome completo
+                        if any(kw in proc_ap_res or kw in proc_ap_full for kw in keywords_prog):
+                            match_proc = True
+                            ap_row_encontrada = r_ap
+                            break
+                    
                     if match_proc:
-                        ap_row = linhas_bloco.iloc[0]
                         match_flags.append("✅ Encontrado")
-                        match_info.append(f"{ap_row['PROCESSO_APONTADO']} ({int(ap_row['QTD_CH'])} ch)")
+                        match_info.append(f"{ap_row_encontrada['PROCESSO_APONTADO']} ({int(ap_row_encontrada['QTD_CH'])} ch)")
                     else:
                         procs_ap = ", ".join(linhas_bloco["PROCESSO_APONTADO"].tolist())
                         match_flags.append("⚠️ Bloco sim, processo diferente")
-                        match_info.append(procs_ap)
+                        match_info.append(f"Apontado: {procs_ap}")
                 else:
                     match_flags.append("❌ Não encontrado")
                     match_info.append("-")
@@ -1180,8 +1191,8 @@ with tab_apontamento:
                     st.rerun()
 
         if not df_ap.empty:
-            blocos_prog_norm = set(norm_bloco(b) for b in df_prog_dia["BLOCO"].tolist()) if total_prog > 0 else set()
-            df_ap_extras = df_ap[~df_ap["BLOCO"].apply(norm_bloco).isin(blocos_prog_norm)]
+            blocos_prog_norm = set(dm.normalize_bloco(b) for b in df_prog_dia["BLOCO"].tolist()) if total_prog > 0 else set()
+            df_ap_extras = df_ap[~df_ap["BLOCO"].apply(dm.normalize_bloco).isin(blocos_prog_norm)]
             if not df_ap_extras.empty:
                 with st.expander(f"📋 {len(df_ap_extras)} apontamento(s) sem programação correspondente", expanded=False):
                     st.dataframe(df_ap_extras[["BLOCO", "PROCESSO_APONTADO", "SETOR_AP", "QTD_CH"]],
