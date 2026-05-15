@@ -104,14 +104,19 @@ def get_data():
         try:
             df_base = pd.read_excel(db_file, sheet_name=sheet_base, engine="openpyxl")
             if "PROCESSO" in df_base.columns and "SETOR" in df_base.columns:
-                # Cria dicionário Processo -> Setor
-                mapa_setor = df_base.dropna(subset=["PROCESSO", "SETOR"]).drop_duplicates("PROCESSO").set_index("PROCESSO")["SETOR"].to_dict()
+                # Função interna para limpar nomes de processo (remove espaços, acentos zoados e força upper)
+                def clean_p(p):
+                    return str(p).strip().upper().replace("", "A") # Ajuste básico para encoding
+                
+                # Cria mapa normalizado: {PROCESSO_LIMPO: SETOR_VALOR}
+                df_base["P_LIMPO"] = df_base["PROCESSO"].apply(clean_p)
+                mapa_setor = df_base.dropna(subset=["P_LIMPO", "SETOR"]).drop_duplicates("P_LIMPO").set_index("P_LIMPO")["SETOR"].to_dict()
                 
                 # Identifica onde o SETOR está vazio ou NaN
                 mask_vazio = df["SETOR"].isna() | (df["SETOR"].astype(str).str.strip() == "") | (df["SETOR"].astype(str).str.lower() == "nan")
                 
-                # Preenche apenas os vazios usando o mapa
-                df.loc[mask_vazio, "SETOR"] = df.loc[mask_vazio, "PROCESSO"].map(mapa_setor)
+                # Preenche usando a versão limpa do processo atual
+                df.loc[mask_vazio, "SETOR"] = df.loc[mask_vazio, "PROCESSO"].apply(clean_p).map(mapa_setor)
         except Exception as e_base:
             print(f"Aviso: Não foi possível carregar o mapa de setores da Base de Dados: {e_base}")
         # ----------------------------------------------------
@@ -363,7 +368,11 @@ def update_cell_by_row(df_index, updates_dict):
         for col_name, new_value in updates_dict.items():
             if col_name in headers:
                 col_idx = headers[col_name]
-                ws.cell(row=excel_row, column=col_idx, value=new_value)
+                # Se for None, limpa a célula explicitamente
+                if new_value is None:
+                    ws.cell(row=excel_row, column=col_idx).value = None
+                else:
+                    ws.cell(row=excel_row, column=col_idx, value=new_value)
 
         wb.save(_get_db_file())
         return True
@@ -448,9 +457,6 @@ def salvar_edicao_bloco_excel(bloco_id, material, demanda, qtd_chapas, vol_m2, r
             if headers.get("PROCESSO"): ws.cell(row=row_to_write, column=headers["PROCESSO"], value=step.get("PROCESSO", ""))
             if headers.get("SETOR"): ws.cell(row=row_to_write, column=headers["SETOR"], value=step.get("SETOR", ""))
             if headers.get("OBSERVAÇÃO DE PRODUÇÃO"): ws.cell(row=row_to_write, column=headers["OBSERVAÇÃO DE PRODUÇÃO"], value=step.get("OBSERVACAO", ""))
-
-            status = step.get("STATUS PROCESSO", "NÃO REALIZADO")
-            if headers.get("STATUS PROCESSO"): ws.cell(row=row_to_write, column=headers["STATUS PROCESSO"], value=status)
 
             data_str = step.get("DATA", "")
             if data_str and headers.get("DATA"): ws.cell(row=row_to_write, column=headers["DATA"], value=data_str)

@@ -8,7 +8,37 @@ import data_manager as dm
 
 importlib.reload(dm)
 
-st.set_page_config(page_title="Gerenciador de Programação", layout="wide", page_icon="📊")
+# --- FUNÇÕES DE SUPORTE GLOBAIS (DENTRO DO APP) ---
+def parse_dt(d):
+    if pd.isna(d) or str(d).strip().upper() in ["", "NAN", "NAT", "NONE", "NULL", "-", "0"]: return None
+    try:
+        if isinstance(d, pd.Timestamp): return d.date()
+        d_str = str(d).strip()
+        # Tenta limpar nomes de dias da semana (comum em formatos longos do Excel)
+        if "," in d_str: d_str = d_str.split(",")[-1].strip()
+        
+        # Tenta formatos comuns
+        for fmt in ["%d/%m/%Y", "%Y-%m-%d %H:%M:%S", "%d/%m/%y"]:
+            try: return pd.to_datetime(d_str, format=fmt).date()
+            except: continue
+        return pd.to_datetime(d_str).date()
+    except: return None
+
+def is_finished(row):
+    st_proc = str(row.get("STATUS PROCESSO", "")).upper()
+    dt_real = parse_dt(row.get("DATA REALIZADA"))
+    return st_proc == "REALIZADO" or dt_real is not None
+
+def is_planned(row):
+    return parse_dt(row.get("DATA")) is not None
+
+def format_data_view(d_val):
+    if pd.isna(d_val) or str(d_val).strip() in ["", "nan", "NaT", "None"]: return "-"
+    dt = parse_dt(d_val)
+    if dt: return dt.strftime("%d/%m/%Y")
+    return str(d_val)
+
+st.set_page_config(page_title="PCP Costa Granitos", layout="wide", page_icon="📊")
 
 st.title("📊 Gerenciador de Programação WIP")
 
@@ -49,7 +79,9 @@ if not df_base.empty and "PROCESSO" in df_base.columns and "SETOR" in df_base.co
         if p and p != "nan":
             mapa_processos[p] = s
             lista_processos.append(p)
-lista_processos = sorted(list(set(lista_processos)))
+# --- PREPARAÇÃO DE DADOS GLOBAL ---
+df_aberto = df[~df.apply(is_finished, axis=1)].copy()
+setores_list = sorted([str(x) for x in df["SETOR"].unique() if str(x) != "" and str(x) != "nan"])
 
 tab_block, tab_view, tab_machine, tab_apontamento, tab_export, tab_analises, tab_config = st.tabs([
     "🛠️ Adicionar / Editar Bloco", 
@@ -243,37 +275,62 @@ with tab_block:
                 except: return str(d_val)
             
             for i, etapa in enumerate(st.session_state["roteiro_atual"]):
-                is_realizado = (etapa.get("STATUS PROCESSO") == "REALIZADO")
+                # Usa a lógica robusta de finalização
+                finalizada = is_finished(etapa)
+                st_label = str(etapa.get("STATUS PROCESSO", "NÃO REALIZADO")).upper()
                 
-                d_prog = format_data_view(etapa.get('DATA'))
-                d_real = format_data_view(etapa.get('DATA REALIZADA'))
-                datas_html = f"<div style='font-size:0.85em; color:gray;'>Prog: <b>{d_prog}</b> <br> Real: <b>{d_real}</b></div>"
-                
-                with st.container(border=True):
-                    col1, col2, col3, col4 = st.columns([1, 2, 4, 1])
-                    if is_realizado:
-                        col1.markdown(f"**{i+1}. 🔒 {etapa['PROCESSO']}**<br><small>{etapa['SETOR']}</small>", unsafe_allow_html=True)
-                        col2.info("Status: REALIZADO")
-                        col2.markdown(datas_html, unsafe_allow_html=True)
-                        col3.write(f"Observação: {etapa['OBSERVACAO']}")
-                        col4.markdown("<div style='text-align:center; padding-top:10px;'>Não Editável</div>", unsafe_allow_html=True)
-                        novas_etapas.append(etapa)
-                    else:
-                        # Permite editar o setor ou observar
-                        col1.markdown(f"**{i+1}. {etapa['PROCESSO']}**")
-                        novo_setor = col1.text_input("Setor", value=etapa["SETOR"], key=f"eset_{i}", label_visibility="collapsed")
-                        col2.warning(f"Status: {etapa.get('STATUS PROCESSO')}")
-                        col2.markdown(datas_html, unsafe_allow_html=True)
-                        nova_obs = col3.text_input("Observação (Chão de Fábrica)", value=etapa["OBSERVACAO"], key=f"eobs_{i}", label_visibility="collapsed")
-                        
-                        if col4.button("🗑️ Remover", key=f"edelt_{i}"):
-                            st.warning("Clique em 'Salvar Edição' no final para efetivar a remoção.")
+                # Cores por status
+                bg_color = "#1e2630" # Escuro padrão
+                if st_label == "REALIZADO": bg_color = "#0e3121"
+                elif st_label == "EM PROCESSO": bg_color = "#3e3612"
+
+                with st.container():
+                    st.markdown(f"""<div style='background-color:{bg_color}; padding:10px; border-radius:5px; border-left: 5px solid {"#28a745" if finalizada else "#ffc107"}; margin-bottom:10px;'>""", unsafe_allow_html=True)
+                    
+                    c1, c2, c3, c4, c5 = st.columns([1.5, 1.5, 2, 2.5, 0.8])
+                    
+                    with c1:
+                        st.markdown(f"**{i+1}. {etapa['PROCESSO']}**")
+                        if finalizada:
+                            st.markdown(f"<small>⚙️ {etapa['SETOR']}</small>", unsafe_allow_html=True)
+                            novas_etapas.append(etapa)
                         else:
-                            etapa_atualizada = etapa.copy()
-                            etapa_atualizada["SETOR"] = novo_setor
-                            etapa_atualizada["OBSERVACAO"] = nova_obs
-                            novas_etapas.append(etapa_atualizada)
+                            novo_setor = st.selectbox("Máquina", options=sorted(setores_list), index=sorted(setores_list).index(etapa["SETOR"]) if etapa["SETOR"] in setores_list else 0, key=f"eset_{i}")
                             
+                    with c2:
+                        d_p = format_data_view(etapa.get('DATA'))
+                        d_r = format_data_view(etapa.get('DATA REALIZADA'))
+                        st.markdown(f"<div style='font-size:0.85em;'>📅 Prog: <b>{d_p}</b><br>✅ Real: <b>{d_r}</b></div>", unsafe_allow_html=True)
+                        
+                    with c3:
+                        if st_label == "REALIZADO":
+                            st.success(f"✔️ {st_label}")
+                        elif st_label == "EM PROCESSO":
+                            st.warning(f"⏳ {st_label}")
+                        else:
+                            st.info(f"⚪ {st_label}")
+                            
+                    with c4:
+                        if finalizada:
+                            st.markdown(f"<small>📝 {etapa['OBSERVACAO'] or 'Sem obs.'}</small>", unsafe_allow_html=True)
+                        else:
+                            nova_obs = st.text_input("Obs. Produção", value=etapa["OBSERVACAO"], key=f"eobs_{i}", label_visibility="collapsed", placeholder="Observação...")
+                            # Atualiza etapa se não for removida
+                            etapa_upd = etapa.copy()
+                            etapa_upd["SETOR"] = novo_setor
+                            etapa_upd["OBSERVACAO"] = nova_obs
+                            novas_etapas.append(etapa_upd)
+                            
+                    with c5:
+                        if not finalizada:
+                            if st.button("🗑️", key=f"edelt_{i}", help="Remover esta etapa"):
+                                st.session_state["roteiro_atual"].pop(i)
+                                st.rerun()
+                        else:
+                            st.markdown("🔒")
+
+                    st.markdown("</div>", unsafe_allow_html=True)
+            
             st.session_state["roteiro_atual"] = novas_etapas
             
             st.markdown("---")
@@ -357,7 +414,6 @@ with tab_machine:
 
     # 2. FILTROS E DADOS INICIAIS
     medias_hist = dm.get_historico_medias_entregues()
-    df_aberto = df[df["STATUS PROCESSO"] != "REALIZADO"].copy()
     
     st.write("---")
     c_top1, c_top2 = st.columns(2)
@@ -365,38 +421,41 @@ with tab_machine:
         data_alvo = st.date_input("Data Alvo (Para onde agendar?)", value=datetime.now(), format="DD/MM/YYYY")
         data_alvo_date = pd.to_datetime(data_alvo).date()
     with c_top2:
-        setores_list = [str(x) for x in df_aberto["SETOR"].unique() if str(x) != "" and str(x) != "nan"]
         maquina_foco = st.selectbox("Máquina/Setor Específico (Filtro)", ["Todos"] + sorted(setores_list), key="maq_foco_top")
     st.write("---")
-    
-    # 3. LÓGICA DE LIBERAÇÃO (Bloqueios por sequência)
+
     status_liberado = {}
-    for bloco_id, group in df_aberto.groupby("BLOCO"):
-        group = group.sort_index()
-        for pos, idx in enumerate(group.index):
-            if pos == 0:
+    hoje = datetime.now().date()
+    
+    for bloco_id, group_bloco in df.groupby("BLOCO"):
+        group_bloco = group_bloco.sort_index()
+        for idx, row in group_bloco.iterrows():
+            if is_finished(row): continue
+            
+            # Localiza a posição deste processo no roteiro total do bloco
+            idx_pos = group_bloco.index.get_loc(idx)
+            dt_prog = parse_dt(row.get("DATA"))
+            
+            # PRIORIDADE 1: Atrasados (Programado para trás e não feito)
+            if dt_prog and dt_prog < hoje:
+                status_liberado[idx] = "🟡 Atrasado"
+                continue
+            
+            # PRIORIDADE 2: Já agendado em OUTRA data futura
+            if dt_prog and dt_prog != data_alvo_date:
+                status_liberado[idx] = "🔴 Agendado"
+                continue
+
+            # PRIORIDADE 3: Lógica de Sequência (Sim/Não)
+            if idx_pos == 0:
                 status_liberado[idx] = "🟢 Sim"
             else:
-                pode_programar = True
-                for i in range(pos):
-                    idx_ant = group.index[i]
-                    d_ant = group.loc[idx_ant, "DATA"]
-                    # Só libera se a etapa anterior já tiver uma data (mesmo que seja futura)
-                    if pd.isna(d_ant) or str(d_ant).strip() in ["", "nan", "NaT", "None"]:
-                        pode_programar = False
-                        break
-                    # Se tem data, não pode agendar a próxima para ANTES da anterior
-                    try:
-                        d_ant_dt = None
-                        if isinstance(d_ant, pd.Timestamp): d_ant_dt = d_ant.date()
-                        elif "/" in str(d_ant): d_ant_dt = pd.to_datetime(str(d_ant), format="%d/%m/%Y").date()
-                        else: d_ant_dt = pd.to_datetime(str(d_ant)).date()
-                        
-                        if d_ant_dt and d_ant_dt > data_alvo_date:
-                            pode_programar = False
-                            break
-                    except: pass
-                status_liberado[idx] = "🟢 Sim" if pode_programar else "🔴 Não"
+                idx_ant = group_bloco.index[idx_pos - 1]
+                row_ant = group_bloco.loc[idx_ant]
+                if is_finished(row_ant) or is_planned(row_ant):
+                    status_liberado[idx] = "🟢 Sim"
+                else:
+                    status_liberado[idx] = "🔴 Não"
     
     # 4. COLUNA ESQUERDA: FILA DE TRABALHO
     col_esquerda, col_direita = st.columns([1.5, 1])
@@ -406,8 +465,26 @@ with tab_machine:
         if maquina_foco != "Todos":
             df_fila = df_fila[df_fila["SETOR"] == maquina_foco]
             
+        # Cálculo de Dias Parado
+        hoje = datetime.now().date()
+        dict_ult_proc = {}; dict_dias_parado = {}
+        
+        for b_id, group_b in df.groupby("BLOCO"):
+            group_b = group_b.sort_index()
+            # Encontra o último processo que está REALMENTE finalizado
+            finalizados = [idx for idx, r in group_b.iterrows() if is_finished(r)]
+            if finalizados:
+                last_idx = finalizados[-1]
+                row_f = group_b.loc[last_idx]
+                dict_ult_proc[b_id] = row_f["PROCESSO"]
+                dt_f = parse_dt(row_f.get("DATA REALIZADA")) or parse_dt(row_f.get("DATA"))
+                if dt_f:
+                    dict_dias_parado[b_id] = max((hoje - dt_f).days, 0)
+            else:
+                dict_ult_proc[b_id] = "Novo / Pátio"
+                dict_dias_parado[b_id] = 0
+
         df_view = pd.DataFrame()
-        # Pré-seleciona automaticamente se o bloco já estiver agendado para o dia escolhido
         df_view["Selecionar"] = df_fila["DATA"].apply(lambda x: match_date(x, data_alvo_date)).tolist()
         df_view["Liberado"] = df_fila.index.map(lambda x: status_liberado.get(x, "🔴 Não")).tolist()
         df_view["ID"] = df_fila.index.tolist()
@@ -416,44 +493,24 @@ with tab_machine:
         df_view["Máquina"] = df_fila["SETOR"].tolist()
         df_view["Processo"] = df_fila["PROCESSO"].tolist()
         df_view["Chapas"] = pd.to_numeric(df_fila["QTD. CHAPAS"], errors="coerce").fillna(0).astype(int).tolist()
-        
-        # Histórico WIP
-        df_realizados = df[df["STATUS PROCESSO"] == "REALIZADO"].copy()
-        last_realizados = df_realizados.groupby("BLOCO").tail(1).set_index("BLOCO")
-        hoje = datetime.now().date()
-        dict_ult_proc = last_realizados["PROCESSO"].to_dict()
-        dict_ult_data = {}
-        dict_dias_parado = {}
-        
-        for b_id, row_b in last_realizados.iterrows():
-            d_raw = row_b.get("DATA REALIZADA", "") or row_b.get("DATA", "")
-            try:
-                d = None
-                if isinstance(d_raw, pd.Timestamp): d = d_raw.date()
-                elif "/" in str(d_raw): d = pd.to_datetime(str(d_raw), format="%d/%m/%Y").date()
-                elif str(d_raw).strip() not in ["", "nan", "NaT"]: d = pd.to_datetime(str(d_raw)).date()
-                
-                if d:
-                    dict_ult_data[b_id] = d.strftime("%d/%m/%Y")
-                    dict_dias_parado[b_id] = max((hoje - d).days, 0)
-            except: pass
-            
         df_view["Últ. Processo"] = df_fila["BLOCO"].map(lambda x: dict_ult_proc.get(x, "Nenhum")).tolist()
-        df_view["Data ÚIt."] = df_fila["BLOCO"].map(lambda x: dict_ult_data.get(x, "-")).tolist()
-        df_view["Dias Parado"] = df_fila["BLOCO"].map(lambda x: dict_dias_parado.get(x, 0)).tolist()
-        df_view["Data Atual"] = df_fila["DATA"].apply(safe_date_str)
+        df_view["Parado"] = df_fila["BLOCO"].map(lambda x: dict_dias_parado.get(x, 0)).tolist()
+        df_view["Data Prog."] = df_fila["DATA"].apply(safe_date_str)
+        col_realizada = df_fila["DATA REALIZADA"] if "DATA REALIZADA" in df_fila.columns else pd.Series([None]*len(df_fila), index=df_fila.index)
+        df_view["Data Realiz."] = col_realizada.apply(safe_date_str)
         
         editado_fila = st.data_editor(
             df_view,
             column_config={
                 "Selecionar": st.column_config.CheckboxColumn("Selecionar", default=False),
                 "Liberado": st.column_config.TextColumn("Liberado?"),
-                "Dias Parado": st.column_config.NumberColumn("Dias Parado", format="%d d"),
+                "Máquina": st.column_config.SelectboxColumn("Máquina", options=sorted(setores_list), required=True),
+                "Parado": st.column_config.NumberColumn("Parado", format="%d d"),
                 "ID": st.column_config.NumberColumn("ID", width="small")
             },
             hide_index=True,
             use_container_width=True,
-            disabled=["ID", "Liberado", "Máquina", "Processo", "Bloco", "Material", "Chapas", "Data Atual", "Últ. Processo", "Data ÚIt.", "Dias Parado"]
+            disabled=["ID", "Liberado", "Processo", "Bloco", "Material", "Chapas", "Últ. Processo", "Parado", "Data Prog.", "Data Realiz."]
         )
         
         # Filtros baseados no ID preservado
@@ -484,14 +541,20 @@ with tab_machine:
     with col_direita:
         st.subheader("📅 Painel de Alocação")
         with st.container(border=True):
-            maq_alvo = maquina_foco if maquina_foco != "Todos" else "Nenhuma Selecionada"
-            st.markdown(f"**Máquina Alvo:** {maq_alvo} | **Data:** {data_alvo.strftime('%d/%m/%Y')}")
+            is_global = (maquina_foco == "Todos")
+            maq_alvo_label = maquina_foco if not is_global else "TODAS AS MÁQUINAS"
+            st.markdown(f"**Máquina Alvo:** {maq_alvo_label} | **Data:** {data_alvo.strftime('%d/%m/%Y')}")
             
             df_dia = df_aberto[df_aberto["DATA"].apply(lambda x: match_date(x, data_alvo_date))].copy()
             df_dia["QTD. CHAPAS"] = pd.to_numeric(df_dia["QTD. CHAPAS"], errors="coerce").fillna(0)
             
-            carga_existente = df_dia[df_dia["SETOR"] == maq_alvo]["QTD. CHAPAS"].sum() if maq_alvo != "Nenhuma Selecionada" else 0
-            media_alvo = medias_hist.get(maq_alvo, 0)
+            if is_global:
+                carga_existente = df_dia["QTD. CHAPAS"].sum()
+                media_alvo = sum(medias_hist.values())
+            else:
+                carga_existente = df_dia[df_dia["SETOR"] == maquina_foco]["QTD. CHAPAS"].sum()
+                media_alvo = medias_hist.get(maquina_foco, 0)
+                
             carga_projetada = carga_existente + saldo_chapas
             
             st.write("---")
@@ -504,19 +567,37 @@ with tab_machine:
             delta_val = carga_projetada - media_alvo
             col_k3.metric("Projeção Total", f"{int(carga_projetada)} ch", delta=f"{delta_val:.1f} vs Média" if media_alvo > 0 else None, delta_color="inverse")
             
-            if not df_dia[df_dia["SETOR"] == maq_alvo].empty:
-                with st.expander("👀 Ver blocos já agendados", expanded=False):
-                    for _, row_ag in df_dia[df_dia["SETOR"] == maq_alvo].iterrows():
-                        st.markdown(f"📦 **Bloco {row_ag['BLOCO']}** ({row_ag.get('MATERIAL','')}) - {row_ag['PROCESSO']} <span style='color:gray'>({int(row_ag['QTD. CHAPAS'])} ch)</span>", unsafe_allow_html=True)
+            # Detalhamento de blocos (Visual Profissional)
+            df_detalhe = df_dia if is_global else df_dia[df_dia["SETOR"] == maquina_foco]
+            if not df_detalhe.empty:
+                with st.expander(f"📦 Detalhes do Agendamento ({len(df_detalhe)} blocos)", expanded=False):
+                    df_exibir = df_detalhe.copy()
+                    # Prepara colunas para exibição amigável
+                    cols_show = ["SETOR", "BLOCO", "MATERIAL", "PROCESSO", "QTD. CHAPAS"]
+                    df_exibir = df_exibir[cols_show].copy()
+                    df_exibir.columns = ["Máquina", "Bloco", "Material", "Processo", "Chapas"]
+                    df_exibir["Chapas"] = df_exibir["Chapas"].astype(int)
+                    
+                    st.dataframe(
+                        df_exibir,
+                        column_config={
+                            "Chapas": st.column_config.NumberColumn("Chapas", format="%d ch"),
+                            "Máquina": st.column_config.TextColumn("Máquina", width="small"),
+                            "Bloco": st.column_config.TextColumn("Bloco", width="small")
+                        },
+                        hide_index=True,
+                        use_container_width=True
+                    )
             
             if media_alvo > 0:
                 st.progress(min(max(carga_projetada / media_alvo, 0.0), 1.0))
                 if carga_projetada > media_alvo:
-                    st.error(f"⚠️ Atenção: Carga ({int(carga_projetada)}) ultrapassa a média ({int(media_alvo)})!")
+                    st.error(f"⚠️ Atenção: Carga Global ({int(carga_projetada)}) ultrapassa a média total ({int(media_alvo)})!")
                     
             st.write("---")
-            if maq_alvo == "Nenhuma Selecionada":
-                st.warning("Selecione uma Máquina para agendar em lote.")
+            # Permite agendar se for global ou uma máquina específica
+            if False: # Placeholder para manter indentação
+                pass
             else:
                 btn_label = "🚀 Confirmar Alterações" if saldo_chapas != 0 else "🚀 Agendar Selecionados"
                 if st.button(btn_label, type="primary", use_container_width=True):
@@ -529,23 +610,25 @@ with tab_machine:
                         # 1. AGENDAR NOVOS
                         if not selecionados_novos.empty and "ID" in selecionados_novos.columns:
                             for idx_sel in selecionados_novos["ID"]:
-                                row_data = df.loc[idx_sel]
-                                valido, msg = dm.validar_sequencia_bloco(df, row_data["BLOCO"], idx_sel, nova_data_str)
+                                row_edited = selecionados_novos[selecionados_novos["ID"] == idx_sel].iloc[0]
+                                nova_maquina = row_edited["Máquina"]
+                                
+                                valido, msg = dm.validar_sequencia_bloco(df, row_edited["Bloco"], idx_sel, nova_data_str)
                                 if not valido:
-                                    erros.append(f"Bloco {row_data['BLOCO']}: {msg}")
+                                    erros.append(f"Bloco {row_edited['Bloco']}: {msg}")
                                 else:
                                     updates = {
                                         "DATA": nova_data_str,
-                                        "STATUS PROCESSO": "EM PROCESSO" if str(row_data["STATUS PROCESSO"]).upper() == "NÃO REALIZADO" else row_data["STATUS PROCESSO"]
+                                        "SETOR": nova_maquina
                                     }
                                     if dm.update_cell_by_row(idx_sel, updates): sucessos += 1
-                                    else: erros.append(f"Bloco {row_data['BLOCO']}: Erro ao salvar.")
+                                    else: erros.append(f"Bloco {row_edited['Bloco']}: Erro ao salvar.")
                         
                         # 2. REMOVER DESMARCADOS
                         if not desmarcados.empty and "ID" in desmarcados.columns:
                             for idx_rem in desmarcados["ID"]:
                                 bloco_rem = df.loc[idx_rem, "BLOCO"]
-                                if dm.update_cell_by_row(idx_rem, {"DATA": None, "STATUS PROCESSO": "NÃO REALIZADO"}):
+                                if dm.update_cell_by_row(idx_rem, {"DATA": None}):
                                     remocoes += 1
                                 else:
                                     erros.append(f"Bloco {bloco_rem}: Erro ao remover.")
@@ -557,7 +640,9 @@ with tab_machine:
                         st.success(f"Sucesso: {', '.join(msg_sucesso)}!")
                         st.rerun()
                     if erros:
-                        for e in erros: st.error(f"🛑 {e}")
+                        for e in erros: 
+                            st.error(f"🛑 {e}")
+                            st.info("💡 Dica: Verifique se o arquivo Excel está fechado em todos os computadores.")
 
 # ----------------- ABA 4: APONTAMENTO DE PRODUÇÃO -----------------
 with tab_apontamento:
@@ -1269,7 +1354,6 @@ def gui_select_file(current_path, is_excel=True):
 with tab_analises:
     st.header("📈 Análises e Indicadores de Produção")
     
-    # Recarrega dados do APONTAMENTO (não da programação) para análise real de produtividade
     df_raw_an = dm.get_all_apontamentos()
     mapping_an = dm._get_system_mapping()
     
@@ -1278,7 +1362,7 @@ with tab_analises:
             if alias.upper() in df_raw_an.columns: return alias.upper()
         return None
 
-    c_dt = find_col_an("DIA_INICIO")  # Considerar data do PROCESSO
+    c_dt = find_col_an("DIA_INICIO")
     c_hr = find_col_an("HORA_INICIO")
     c_m2 = find_col_an("QTD_M2")
     c_ch = find_col_an("QTD_CH")
@@ -1289,71 +1373,65 @@ with tab_analises:
     if df_raw_an.empty:
         st.warning("⚠️ Base de dados vazia ou não carregada.")
     elif not c_dt or not c_m2 or not c_ch:
-        st.warning("⚠️ Colunas essenciais (Data, M², Chapas) não encontradas no DB para gerar análises.")
+        st.warning("⚠️ Colunas essenciais não encontradas no DB para gerar análises.")
     else:
+        hoje = datetime.now().date()
+        
         # Filtro de Período
         col_f1, col_f2 = st.columns([1, 3])
         with col_f1:
-            periodo = st.selectbox("Período", ["Últimos 7 dias", "Últimos 30 dias", "Mês Atual", "Todo o Histórico"], index=1)
-        
-        # Processamento Básico
+            periodo = st.selectbox("Período", ["Últimos 7 dias", "Últimos 30 dias", "Mês Atual", "Personalizado", "Todo o Histórico"], index=1)
+            
+            hoje = datetime.now().date()
+            data_ini_custom = hoje - timedelta(days=7)
+            data_fim_custom = hoje
+            if periodo == "Personalizado":
+                res_datas = st.date_input("Intervalo", [hoje - timedelta(days=7), hoje], key="analise_date_range")
+                if isinstance(res_datas, (list, tuple)) and len(res_datas) == 2:
+                    data_ini_custom, data_fim_custom = res_datas
+                elif isinstance(res_datas, (list, tuple)) and len(res_datas) == 1:
+                    data_ini_custom = data_fim_custom = res_datas[0]
+                else:
+                    data_ini_custom = data_fim_custom = res_datas
+
+        # Processamento
         df_an = df_raw_an.copy()
-        # Converte para numérico o que for medida
         for col_num in [c_m2, c_ch]:
             df_an[col_num] = pd.to_numeric(df_an[col_num], errors='coerce').fillna(0)
 
         df_an[c_dt] = pd.to_datetime(df_an[c_dt], errors='coerce', dayfirst=True)
         df_an = df_an.dropna(subset=[c_dt])
         
-        # Ajuste do Dia de Produção (Regra: 07:00 as 07:00)
         def get_dia_producao(row):
             dt = row[c_dt]
             if pd.isna(dt): return None
             val_hr = row.get(c_hr)
             try:
-                # Extrai a hora independente se é objeto time ou string
-                if hasattr(val_hr, 'hour'):
-                    hour = val_hr.hour
-                else:
-                    hour = int(str(val_hr).split(":")[0])
-                
-                if hour < 7:
-                    return (dt - timedelta(days=1)).date()
+                hour = val_hr.hour if hasattr(val_hr, 'hour') else int(str(val_hr).split(":")[0])
+                if hour < 7: return (dt - timedelta(days=1)).date()
                 return dt.date()
-            except:
-                return dt.date()
+            except: return dt.date()
         
         df_an["DIA_PROD"] = df_an.apply(get_dia_producao, axis=1)
         df_an = df_an.dropna(subset=["DIA_PROD"])
 
-        # Filtro de datas (usando o Dia de Produção calculado)
-        hoje = datetime.now().date()
-        if periodo == "Últimos 7 dias": 
-            df_an = df_an[df_an["DIA_PROD"] >= hoje - timedelta(days=7)]
-        elif periodo == "Últimos 30 dias": 
-            df_an = df_an[df_an["DIA_PROD"] >= hoje - timedelta(days=30)]
-        elif periodo == "Mês Atual": 
-            df_an = df_an[pd.to_datetime(df_an["DIA_PROD"]).dt.month == hoje.month]
+        if periodo == "Últimos 7 dias": df_an = df_an[df_an["DIA_PROD"] >= hoje - timedelta(days=7)]
+        elif periodo == "Últimos 30 dias": df_an = df_an[df_an["DIA_PROD"] >= hoje - timedelta(days=30)]
+        elif periodo == "Mês Atual": df_an = df_an[pd.to_datetime(df_an["DIA_PROD"]).dt.month == hoje.month]
+        elif periodo == "Personalizado": df_an = df_an[(df_an["DIA_PROD"] >= data_ini_custom) & (df_an["DIA_PROD"] <= data_fim_custom)]
         
-        # Filtro Específico: RETOQUE não entra na análise de produtividade
         df_an = df_an[~df_an[c_pr].astype(str).str.upper().str.contains("RETOQUE")]
-        
-        # Identificação de Refeito (Sem Retoque)
         df_an["REFEITO"] = df_an[c_pr].astype(str).str.upper().str.contains("REPASSE|REFEITO|REPROCESSO")
         df_an["TIPO_PROD"] = df_an["REFEITO"].map({True: "Refeito", False: "Normal"})
 
-        # Seletor de Métrica para o Board
         st.write("---")
         c_opt1, c_opt2 = st.columns([2, 2])
         with c_opt1:
             metrica_board = st.radio("Métrica para o Board:", ["Chapas", "M²"], horizontal=True)
             col_valor = c_ch if metrica_board == "Chapas" else c_m2
 
-        # Métricas Globais (Atualizadas após filtro de Retoque)
-        m_tot_m2 = df_an[c_m2].sum()
-        m_tot_ch = df_an[c_ch].sum()
-        m_refeito_m2 = df_an[df_an["REFEITO"]][c_m2].sum()
-        m_refeito_ch = df_an[df_an["REFEITO"]][c_ch].sum()
+        m_tot_m2 = df_an[c_m2].sum(); m_tot_ch = df_an[c_ch].sum()
+        m_refeito_m2 = df_an[df_an["REFEITO"]][c_m2].sum(); m_refeito_ch = df_an[df_an["REFEITO"]][c_ch].sum()
         p_refeito = (m_refeito_m2 / m_tot_m2 * 100) if m_tot_m2 > 0 else 0
 
         c_met1, c_met2, c_met3, c_met4 = st.columns(4)
@@ -1365,162 +1443,83 @@ with tab_analises:
             c_met1.metric("Total Produzido (M²)", f"{m_tot_m2:,.2f}")
             c_met2.metric("Produção Normal", f"{df_an[df_an['REFEITO']==False][c_m2].sum():,.2f}")
             c_met3.metric("Produção Refeito", f"{m_refeito_m2:,.2f}")
-            
         c_met4.metric("% Refeito (M²)", f"{p_refeito:.1f}%")
 
         st.divider()
-        
-        # --- O BOARD PRINCIPAL (Estilo Excel) ---
         st.subheader(f"📊 Board de Produtividade Diária ({metrica_board})")
-        st.caption("Comparativo por Máquina, Turno e Tipo de Produção (Considerando Dia de Produção 07h-07h)")
         
         try:
-            # Pivot table base numérica para cálculos
-            df_base_pivot = df_an.pivot_table(
-                index="DIA_PROD", 
-                columns=[c_st, c_tr, "TIPO_PROD"], 
-                values=col_valor, 
-                aggfunc='sum'
-            ).fillna(0)
-            
-            # Pegamos todas as combinações únicas de (Setor, Turno) existentes nos dados
-            cols_originais = df_base_pivot.columns
-            combinacoes = sorted(list(set([(c[0], c[1]) for c in cols_originais])))
-            
+            df_base_pivot = df_an.pivot_table(index="DIA_PROD", columns=[c_st, c_tr, "TIPO_PROD"], values=col_valor, aggfunc='sum').fillna(0)
+            combinacoes = sorted(list(set([(c[0], c[1]) for c in df_base_pivot.columns])))
             df_final = pd.DataFrame(index=df_base_pivot.index)
-            
             for st_val, tr_val in combinacoes:
-                # Busca valores de Normal e Refeito com fallback para zero
-                col_norm = (st_val, tr_val, "Normal")
-                col_refe = (st_val, tr_val, "Refeito")
-                
-                vals_norm = df_base_pivot[col_norm] if col_norm in df_base_pivot.columns else pd.Series(0, index=df_base_pivot.index)
-                vals_refe = df_base_pivot[col_refe] if col_refe in df_base_pivot.columns else pd.Series(0, index=df_base_pivot.index)
-                
-                # Cria a coluna formatada: "Normal (Refeito)"
-                if metrica_board == "Chapas":
-                    df_final[f"{st_val} / {tr_val}"] = [
-                        f"{int(n)} ({int(r)})" if (n > 0 or r > 0) else "-" 
-                        for n, r in zip(vals_norm, vals_refe)
-                    ]
-                else:
-                    df_final[f"{st_val} / {tr_val}"] = [
-                        f"{n:,.1f} ({r:,.1f})" if (n > 0 or r > 0) else "-" 
-                        for n, r in zip(vals_norm, vals_refe)
-                    ]
+                vn = df_base_pivot[(st_val, tr_val, "Normal")] if (st_val, tr_val, "Normal") in df_base_pivot.columns else pd.Series(0, index=df_base_pivot.index)
+                vr = df_base_pivot[(st_val, tr_val, "Refeito")] if (st_val, tr_val, "Refeito") in df_base_pivot.columns else pd.Series(0, index=df_base_pivot.index)
+                df_final[f"{st_val} / {tr_val}"] = [f"{int(n)} ({int(r)})" if metrica_board == "Chapas" else f"{n:,.1f} ({r:,.1f})" if (n > 0 or r > 0) else "-" for n, r in zip(vn, vr)]
             
-            # Adiciona Total Geral (Numérico)
-            if metrica_board == "Chapas":
-                df_final["TOTAL GERAL"] = [f"{int(t)}" for t in df_base_pivot.sum(axis=1)]
-            else:
-                df_final["TOTAL GERAL"] = [f"{t:,.1f}" for t in df_base_pivot.sum(axis=1)]
-            
-            # Ordenação por data decrescente
+            df_final["TOTAL GERAL"] = [f"{int(t)}" if metrica_board == "Chapas" else f"{t:,.1f}" for t in df_base_pivot.sum(axis=1)]
             df_final = df_final.sort_index(ascending=False)
             df_final.index = [d.strftime('%d/%m/%Y') for d in df_final.index]
             
+            # Tabela em cima ocupando a largura total para visão rápida
             st.dataframe(df_final, use_container_width=True)
-            st.caption("📌 Legenda das células: **Produção Normal (Produção Refeita)**. Traço (-) indica sem produção.")
+            st.caption("📌 Legenda: **Normal (Refeita)**.")
             
-        except Exception as e:
-            st.info(f"Aguardando dados suficientes para gerar o board simplificado. (Erro: {e})")
-
-        st.divider()
-        
-        # Gráficos de Apoio
-        st.write("---")
-        c_gr1, c_gr2 = st.columns(2)
-        
-        with c_gr1:
-            st.subheader(f"📅 Evolução Diária ({metrica_board})")
-            # Preparação dos dados para o Altair
-            df_evol = df_an.groupby(["DIA_PROD", "TIPO_PROD"])[col_valor].sum().reset_index()
-            df_evol["DIA"] = df_evol["DIA_PROD"].apply(lambda d: d.strftime('%d/%m'))
+            # Gráfico embaixo ocupando a largura total para detalhamento visual
+            df_board_gr = df_an.groupby(["DIA_PROD", c_st, c_tr, "TIPO_PROD"])[col_valor].sum().reset_index()
+            df_board_gr["MAQ_TURNO"] = df_board_gr[c_st] + " (" + df_board_gr[c_tr] + ")"
+            df_board_gr["DIA"] = df_board_gr["DIA_PROD"].apply(lambda d: d.strftime('%d/%m'))
             
-            # Gráfico de Barras Empilhadas
-            base_evol = alt.Chart(df_evol).encode(
-                x=alt.X('DIA:N', title='Dia', sort=None),
+            base = alt.Chart(df_board_gr).encode(
+                x=alt.X('MAQ_TURNO:N', title=None, sort=None),
                 y=alt.Y(f'{col_valor}:Q', title=metrica_board),
                 color=alt.Color('TIPO_PROD:N', title='Tipo', scale=alt.Scale(domain=['Normal', 'Refeito'], range=['#00CC96', '#EF553B']))
             )
             
-            bars_evol = base_evol.mark_bar()
+            bars = base.mark_bar()
             
-            # Valores por Segmento (Legibilidade: Branco com contorno Preto fino)
-            text_segments = base_evol.mark_text(
-                align='center',
-                baseline='middle',
-                color='white',
-                fontSize=18,
-                fontWeight='bold',
-                stroke='black',
-                strokeWidth=0.8
-            ).encode(
-                text=alt.Text(f'{col_valor}:Q', format='.0f' if metrica_board == 'Chapas' else '.1f'),
-                detail='TIPO_PROD:N'
+            # Valores centrais maiores
+            text_seg = base.mark_text(
+                align='center', baseline='middle', color='white', fontSize=15, fontWeight='bold', stroke='black', strokeWidth=0.5
+            ).encode(text=alt.Text(f'{col_valor}:Q', format='.0f' if metrica_board == 'Chapas' else '.1f'), detail='TIPO_PROD:N')
+            
+            # Totais no topo maiores
+            text_totals = alt.Chart(df_board_gr).mark_text(
+                align='center', baseline='bottom', dy=-5, fontSize=18, fontWeight='bold', color='white', stroke='black', strokeWidth=0.6
+            ).encode(x=alt.X('MAQ_TURNO:N', sort=None), y=alt.Y(f'sum({col_valor}):Q'), text=alt.Text(f'sum({col_valor}):Q', format='.0f' if metrica_board == 'Chapas' else '.1f'))
+            
+            # Escala dinâmica: Cada barra tem largura fixa, fazendo o gráfico expandir horizontalmente
+            chart_layered = (bars + text_seg + text_totals).properties(width=alt.Step(100), height=450)
+            
+            faceted_chart = chart_layered.facet(
+                column=alt.Column('DIA:N', title='Dia de Produção', sort=alt.SortOrder('ascending'))
+            ).configure_view(stroke=None).configure_axis(labelFontSize=13, titleFontSize=15)
+            
+            st.altair_chart(faceted_chart, use_container_width=True)
+            
+        except Exception as e:
+            st.info(f"Aguardando dados suficientes. (Erro: {e})")
+
+        st.divider()
+        c_gr1, c_gr2 = st.columns(2)
+        with c_gr1:
+            st.subheader(f"📅 Evolução Diária ({metrica_board})")
+            df_evol = df_an.groupby(["DIA_PROD", "TIPO_PROD"])[col_valor].sum().reset_index()
+            df_evol["DIA"] = df_evol["DIA_PROD"].apply(lambda d: d.strftime('%d/%m'))
+            # Ordenação cronológica (ascending)
+            base_evol = alt.Chart(df_evol).encode(
+                x=alt.X('DIA:N', title='Dia', sort=alt.EncodingSortField(field='DIA_PROD', order='ascending')), 
+                y=alt.Y(f'{col_valor}:Q', title=metrica_board), 
+                color=alt.Color('TIPO_PROD:N', title='Tipo', scale=alt.Scale(domain=['Normal', 'Refeito'], range=['#00CC96', '#EF553B']))
             )
-            
-            # Valor Total no topo (Branco com contorno Preto para Modo Claro/Escuro)
-            text_totals = alt.Chart(df_evol).mark_text(
-                align='center',
-                baseline='bottom',
-                dy=-10,
-                fontSize=20,
-                fontWeight='bold',
-                color='white',
-                stroke='black',
-                strokeWidth=0.8
-            ).encode(
-                x=alt.X('DIA:N', sort=None),
-                y=alt.Y(f'sum({col_valor}):Q'),
-                text=alt.Text(f'sum({col_valor}):Q', format='.0f' if metrica_board == 'Chapas' else '.1f')
-            )
-            
-            st.altair_chart((bars_evol + text_segments + text_totals).properties(height=500), use_container_width=True)
+            st.altair_chart((base_evol.mark_bar() + base_evol.mark_text(align='center', baseline='middle', color='white', fontSize=16, fontWeight='bold', stroke='black', strokeWidth=0.5).encode(text=alt.Text(f'{col_valor}:Q', format='.0f' if metrica_board == 'Chapas' else '.1f'), detail='TIPO_PROD:N') + alt.Chart(df_evol).mark_text(align='center', baseline='bottom', dy=-5, fontSize=18, fontWeight='bold', color='white', stroke='black', strokeWidth=0.5).encode(x=alt.X('DIA:N', sort=alt.EncodingSortField(field='DIA_PROD', order='ascending')), y=alt.Y(f'sum({col_valor}):Q'), text=alt.Text(f'sum({col_valor}):Q', format='.0f' if metrica_board == 'Chapas' else '.1f'))).properties(height=450), use_container_width=True)
             
         with c_gr2:
             st.subheader(f"🌙 Produtividade por Turno ({metrica_board})")
             df_turno = df_an.groupby([c_tr, "TIPO_PROD"])[col_valor].sum().reset_index()
-            
-            base_turno = alt.Chart(df_turno).encode(
-                x=alt.X(f'{c_tr}:N', title='Turno'),
-                y=alt.Y(f'{col_valor}:Q', title=metrica_board),
-                color=alt.Color('TIPO_PROD:N', title='Tipo', scale=alt.Scale(domain=['Normal', 'Refeito'], range=['#00CC96', '#EF553B']))
-            )
-            
-            bars_turno = base_turno.mark_bar()
-            
-            # Valores por Segmento
-            text_seg_turno = base_turno.mark_text(
-                align='center',
-                baseline='middle',
-                color='white',
-                fontSize=18,
-                fontWeight='bold',
-                stroke='black',
-                strokeWidth=0.8
-            ).encode(
-                text=alt.Text(f'{col_valor}:Q', format='.0f' if metrica_board == 'Chapas' else '.1f'),
-                detail='TIPO_PROD:N'
-            )
-            
-            # Totais por Turno (Branco com contorno Preto)
-            text_tot_turno = alt.Chart(df_turno).mark_text(
-                align='center',
-                baseline='bottom',
-                dy=-10,
-                fontSize=20,
-                fontWeight='bold',
-                color='white',
-                stroke='black',
-                strokeWidth=0.8
-            ).encode(
-                x=alt.X(f'{c_tr}:N'),
-                y=alt.Y(f'sum({col_valor}):Q'),
-                text=alt.Text(f'sum({col_valor}):Q', format='.0f' if metrica_board == 'Chapas' else '.1f')
-            )
-            
-            st.altair_chart((bars_turno + text_seg_turno + text_tot_turno).properties(height=500), use_container_width=True)
+            base_turno = alt.Chart(df_turno).encode(x=alt.X(f'{c_tr}:N', title='Turno'), y=alt.Y(f'{col_valor}:Q', title=metrica_board), color=alt.Color('TIPO_PROD:N', title='Tipo', scale=alt.Scale(domain=['Normal', 'Refeito'], range=['#00CC96', '#EF553B'])))
+            st.altair_chart((base_turno.mark_bar() + base_turno.mark_text(align='center', baseline='middle', color='white', fontSize=16, fontWeight='bold', stroke='black', strokeWidth=0.5).encode(text=alt.Text(f'{col_valor}:Q', format='.0f' if metrica_board == 'Chapas' else '.1f'), detail='TIPO_PROD:N') + alt.Chart(df_turno).mark_text(align='center', baseline='bottom', dy=-5, fontSize=18, fontWeight='bold', color='white', stroke='black', strokeWidth=0.5).encode(x=alt.X(f'{c_tr}:N'), y=alt.Y(f'sum({col_valor}):Q'), text=alt.Text(f'sum({col_valor}):Q', format='.0f' if metrica_board == 'Chapas' else '.1f'))).properties(height=450), use_container_width=True)
+
 
 # ----------------- ABA 7: OPÇÕES GERAIS -----------------
 with tab_config:
