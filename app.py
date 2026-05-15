@@ -274,65 +274,61 @@ with tab_block:
                     return pd.to_datetime(str(d_val)).strftime("%d/%m/%Y")
                 except: return str(d_val)
             
-            for i, etapa in enumerate(st.session_state["roteiro_atual"]):
-                # Usa a lógica robusta de finalização
-                finalizada = is_finished(etapa)
-                st_label = str(etapa.get("STATUS PROCESSO", "NÃO REALIZADO")).upper()
-                
-                # Cores por status
-                bg_color = "#1e2630" # Escuro padrão
-                if st_label == "REALIZADO": bg_color = "#0e3121"
-                elif st_label == "EM PROCESSO": bg_color = "#3e3612"
-
-                with st.container():
-                    st.markdown(f"""<div style='background-color:{bg_color}; padding:10px; border-radius:5px; border-left: 5px solid {"#28a745" if finalizada else "#ffc107"}; margin-bottom:10px;'>""", unsafe_allow_html=True)
-                    
-                    c1, c2, c3, c4, c5 = st.columns([1.5, 1.5, 2, 2.5, 0.8])
-                    
-                    with c1:
-                        st.markdown(f"**{i+1}. {etapa['PROCESSO']}**")
-                        if finalizada:
-                            st.markdown(f"<small>⚙️ {etapa['SETOR']}</small>", unsafe_allow_html=True)
-                            novas_etapas.append(etapa)
-                        else:
-                            novo_setor = st.selectbox("Máquina", options=sorted(setores_list), index=sorted(setores_list).index(etapa["SETOR"]) if etapa["SETOR"] in setores_list else 0, key=f"eset_{i}")
-                            
-                    with c2:
-                        d_p = format_data_view(etapa.get('DATA'))
-                        d_r = format_data_view(etapa.get('DATA REALIZADA'))
-                        st.markdown(f"<div style='font-size:0.85em;'>📅 Prog: <b>{d_p}</b><br>✅ Real: <b>{d_r}</b></div>", unsafe_allow_html=True)
-                        
-                    with c3:
-                        if st_label == "REALIZADO":
-                            st.success(f"✔️ {st_label}")
-                        elif st_label == "EM PROCESSO":
-                            st.warning(f"⏳ {st_label}")
-                        else:
-                            st.info(f"⚪ {st_label}")
-                            
-                    with c4:
-                        if finalizada:
-                            st.markdown(f"<small>📝 {etapa['OBSERVACAO'] or 'Sem obs.'}</small>", unsafe_allow_html=True)
-                        else:
-                            nova_obs = st.text_input("Obs. Produção", value=etapa["OBSERVACAO"], key=f"eobs_{i}", label_visibility="collapsed", placeholder="Observação...")
-                            # Atualiza etapa se não for removida
-                            etapa_upd = etapa.copy()
-                            etapa_upd["SETOR"] = novo_setor
-                            etapa_upd["OBSERVACAO"] = nova_obs
-                            novas_etapas.append(etapa_upd)
-                            
-                    with c5:
-                        if not finalizada:
-                            if st.button("🗑️", key=f"edelt_{i}", help="Remover esta etapa"):
-                                st.session_state["roteiro_atual"].pop(i)
-                                st.rerun()
-                        else:
-                            st.markdown("🔒")
-
-                    st.markdown("</div>", unsafe_allow_html=True)
+            # --- VISUALIZAÇÃO EM ESTILO TABELA (DATA EDITOR) ---
+            df_edit_roteiro = pd.DataFrame(st.session_state["roteiro_atual"])
+            
+            # Formatação para exibição
+            df_view_rot = pd.DataFrame()
+            df_view_rot["Ordem"] = range(1, len(df_edit_roteiro) + 1)
+            df_view_rot["Processo"] = df_edit_roteiro["PROCESSO"]
+            df_view_rot["Máquina"] = df_edit_roteiro["SETOR"]
+            df_view_rot["Status"] = df_edit_roteiro["STATUS PROCESSO"].apply(lambda x: f"✅ {x}" if str(x).upper() == "REALIZADO" else (f"⏳ {x}" if str(x).upper() == "EM PROCESSO" else f"⚪ {x}"))
+            df_view_rot["Data Prog."] = df_edit_roteiro["DATA"].apply(format_data_view)
+            df_view_rot["Data Realiz."] = df_edit_roteiro["DATA REALIZADA"].apply(format_data_view)
+            df_view_rot["Observação"] = df_edit_roteiro["OBSERVACAO"]
+            
+            edited_df_rot = st.data_editor(
+                df_view_rot,
+                column_config={
+                    "Ordem": st.column_config.NumberColumn("Nº", width="small", disabled=True),
+                    "Processo": st.column_config.TextColumn("Processo", disabled=True),
+                    "Máquina": st.column_config.SelectboxColumn("Máquina", options=sorted(setores_list), required=True),
+                    "Status": st.column_config.TextColumn("Status (Fórmula)", disabled=True),
+                    "Data Prog.": st.column_config.TextColumn("Data Prog.", disabled=True),
+                    "Data Realiz.": st.column_config.TextColumn("Data Realiz.", disabled=True),
+                    "Observação": st.column_config.TextColumn("Observação", width="large")
+                },
+                hide_index=True,
+                use_container_width=True,
+                key="editor_roteiro_bloco"
+            )
+            
+            # Sincroniza as alterações de volta para o session_state
+            novas_etapas = []
+            for i, row in edited_df_rot.iterrows():
+                orig = st.session_state["roteiro_atual"][i].copy()
+                # Só permite alterar se não estiver realizado (ou permite tudo e o data_manager filtra)
+                orig["SETOR"] = row["Máquina"]
+                orig["OBSERVACAO"] = row["Observação"]
+                novas_etapas.append(orig)
             
             st.session_state["roteiro_atual"] = novas_etapas
             
+            # Botão de remover (ainda necessário para excluir linhas)
+            if len(st.session_state["roteiro_atual"]) > 0:
+                with st.expander("❌ Remover Etapas Pendentes"):
+                    idx_remover = st.multiselect("Selecione as etapas para remover (apenas não realizadas):", 
+                                                 range(1, len(st.session_state["roteiro_atual"]) + 1),
+                                                 format_func=lambda x: f"{x}. {st.session_state['roteiro_atual'][x-1]['PROCESSO']}")
+                    if st.button("Confirmar Remoção das Etapas Selecionadas"):
+                        # Remove de trás para frente para não bagunçar os índices
+                        for idx in sorted(idx_remover, reverse=True):
+                            if not is_finished(st.session_state["roteiro_atual"][idx-1]):
+                                st.session_state["roteiro_atual"].pop(idx-1)
+                            else:
+                                st.error(f"Não é possível remover a etapa {idx} porque ela já foi realizada.")
+                        st.rerun()
+
             st.markdown("---")
             st.markdown("**➕ Adicionar Nova Etapa ao Final:**")
             col_eproc, col_eset, col_ebtn = st.columns([2, 2, 1])
