@@ -510,92 +510,111 @@ def get_mapa_resumido_processos():
 
 def get_apontamentos_do_dia(data_alvo_date):
     """
-    e retorna um DataFrame filtrado pela data_alvo_date.
+    Lógica 'Super Loader' para extração de apontamentos da fábrica.
+    Focada em resiliência total para o Confronto (Aba 4).
     """
     try:
-        # Busca dinâmica do cabeçalho (procura em até 100 linhas)
-        df_full = pd.read_excel(_get_apontamento_file(), sheet_name=_get_sheet("SHEET_AP_BD"), header=None, engine="openpyxl", nrows=100)
-        # Lista de todos os aliases para detecção rápida
-        todos_aliases = ["DATA REG", "DATA", "DATA_REG", "DATA DO APONTAMENTO", "DATA LANÇAMENTO", "LANÇAMENTO", "DATA CADASTRO", "DATA_APONTAMENTO", "PROCESSO", "PROC", "PROCESSO_APONTADO", "ETAPA", "OPERACAO", "SERVIÇO", "BLOCO", "NUMERO DO BLOCO", "Nº BLOCO", "NUM BLOCO", "N BLOCO", "ID BLOCO", "IDENTIFICAÇÃO", "CÓDIGO"]
-        header_row = 6 # fallback padrão
-        for i, row in df_full.iterrows():
-            row_vals = [str(v).strip().upper() for v in row.values if pd.notna(v)]
-            # Se encontrar pelo menos 2 colunas conhecidas na mesma linha, achamos o cabeçalho
-            if sum(1 for v in row_vals if v in todos_aliases) >= 2:
-                header_row = i
-                break
+        sheet_name = _get_sheet("SHEET_AP_BD")
+        file_path = _get_apontamento_file()
         
-        df = pd.read_excel(
-            _get_apontamento_file(),
-            sheet_name=_get_sheet("SHEET_AP_BD"),
-            skiprows=header_row,
-            engine="openpyxl"
-        )
-        # Limpar nomes de colunas
-        orig_cols = [str(c).strip().upper() for c in df.columns]
-        df.columns = orig_cols
+        # Lê a aba inteira sem cabeçalho definido para varredura manual
+        df_raw = pd.read_excel(file_path, sheet_name=sheet_name, header=None, engine="openpyxl")
+        if df_raw.empty: return pd.DataFrame()
 
-        # Mapeamento robusto
-        mapping = {
-            "DATA_REG": ["DATA INICIO", "DATA INÍCIO", "DATA DE INÍCIO", "DATA INÍCIO APONTAMENTO", "DATA REG", "DATA", "DATA_REG", "DATA DO APONTAMENTO", "DATA LANÇAMENTO"],
-            "MAT_BLOCO": ["MATERIAL+BLOCO", "MAT+BLO", "MATERIAL BLOCO", "MAT/BLO"],
-            "NOME_MATERIAL": ["NOME MATERIAL", "MATERIAL", "NOME_MATERIAL", "DESCRIÇÃO MATERIAL"],
-            "BLOCO_RAW": ["NUMERO DO BLOCO", "Nº BLOCO", "NUM BLOCO", "BLOCO", "N BLOCO", "ID BLOCO", "IDENTIFICAÇÃO"],
-            "PROCESSO_APONTADO": ["PROCESSO", "PROC", "PROCESSO_APONTADO", "ETAPA", "OPERACAO"],
-            "SETOR_AP": ["SETOR", "MAQUINA", "MÁQUINA", "SETOR_AP", "LOCAL"],
-            "QTD_CH": ["QTD. CHAPAS", "QTD CH (SEM RET & REPASSE)", "QTD CH", "CHAPAS", "QTD_CH", "TOTAL CHAPAS"],
-            "QTD_M2": ["QTD M² (SEM RET & REPASSE)", "QTD M²", "QTD M2", "METRAGEM", "QTD M", "QTD_M2", "VOLUME M²"]
+        # Dicionário de mapeamento de interesses (nomes que aparecem nas colunas)
+        targets = {
+            "DATA": ["DATA INICIO", "DATA INÍCIO", "DATA DE INÍCIO", "INÍCIO", "DATA", "LANÇAMENTO", "DATA REG"],
+            "BLOCO": ["BLOCO", "NUMERO DO BLOCO", "Nº BLOCO", "IDENTIFICAÇÃO", "CÓDIGO"],
+            "PROCESSO": ["PROCESSO", "SERVIÇO", "OPERACAO", "ETAPA", "PROC"],
+            "SETOR": ["SETOR", "MAQUINA", "MÁQUINA", "LOCAL", "EQUIPAMENTO"],
+            "QTD": ["QTD", "CHAPAS", "QUANTIDADE", "CH"]
         }
 
-        rename_dict = {}
-        for target, aliases in mapping.items():
-            for alias in aliases:
-                if alias.upper() in orig_cols:
-                    rename_dict[alias.upper()] = target
-                    break
+        # 1. Identifica a linha do cabeçalho e mapeia colunas
+        idx_map = {}
+        header_row = 0
+        header_found = False
         
-        df = df.rename(columns=rename_dict)
+        # Varre as primeiras 100 linhas procurando o cabeçalho
+        for i in range(min(100, len(df_raw))):
+            row = df_raw.iloc[i]
+            row_str = [str(v).strip().upper() for v in row.values if pd.notna(v)]
+            
+            # Se achou pelo menos 2 colunas-chave na mesma linha, achamos o cabeçalho
+            # Prioridade absoluta para DATA INÍCIO e BLOCO
+            matches = 0
+            for key, aliases in targets.items():
+                if any(any(alias in v for alias in aliases) for v in row_str):
+                    matches += 1
+            
+            if matches >= 2:
+                # Mapeia qual índice é cada coluna baseado nos aliases
+                for col_idx, val in enumerate(row.values):
+                    v_up = str(val).strip().upper()
+                    for key, aliases in targets.items():
+                        if any(alias == v_up or alias in v_up for alias in aliases):
+                            if key not in idx_map: idx_map[key] = col_idx
+                
+                header_row = i
+                header_found = True
+                break
+        
+        if not header_found: return pd.DataFrame()
 
-        if "DATA_REG" not in df.columns:
-            # Tenta encontrar qualquer coluna que tenha 'DATA' no nome se não achou a exata
-            for c in df.columns:
-                if "DATA" in c.upper():
-                    df = df.rename(columns={c: "DATA_REG"})
-                    break
+        # 2. Processa os dados a partir da linha seguinte ao cabeçalho
+        data_rows = []
+        for i in range(header_row + 1, len(df_raw)):
+            row = df_raw.iloc[i]
+            
+            # Extrai Data (prioritário)
+            d_idx = idx_map.get("DATA")
+            if d_idx is None: continue
+            d_val = row[d_idx]
+            if pd.isna(d_val): continue
+            
+            try:
+                # Conversão ultra-robusta de data
+                dt = pd.to_datetime(d_val, errors="coerce", dayfirst=True)
+                if pd.isna(dt) or dt.date() != data_alvo_date: continue
+            except: continue
+            
+            # Extrai Bloco
+            b_idx = idx_map.get("BLOCO")
+            if b_idx is None: continue
+            b_val = row[b_idx]
+            if pd.isna(b_val) or str(b_val).strip() == "": continue
+            
+            # Normalização do Bloco (7179.0 -> 7179)
+            bloco = str(b_val).strip().split(".")[0].upper()
+            
+            # Extrai demais campos
+            proc = str(row[idx_map.get("PROCESSO")]).strip() if "PROCESSO" in idx_map else "N/I"
+            setor = str(row[idx_map.get("SETOR")]).strip() if "SETOR" in idx_map else "N/I"
+            qtd = pd.to_numeric(row[idx_map.get("QTD")], errors="coerce") if "QTD" in idx_map else 0
+            
+            data_rows.append({
+                "BLOCO": bloco,
+                "PROCESSO_APONTADO": proc,
+                "SETOR_AP": setor,
+                "QTD_CH": qtd if pd.notna(qtd) else 0,
+                "DATA_REG": dt
+            })
+            
+        df_final = pd.DataFrame(data_rows)
+        if df_final.empty: return pd.DataFrame()
 
-        # Conversão robusta de data (DayFirst=True para Brasil)
-        df["DATA_REG"] = pd.to_datetime(df["DATA_REG"], errors="coerce", dayfirst=True)
-        df = df.dropna(subset=["DATA_REG"])
-
-        df_dia = df[df["DATA_REG"].dt.date == data_alvo_date].copy()
-
-        if df_dia.empty:
-            return pd.DataFrame()
-
-        def extrair_bloco(row):
-            b = row.get("BLOCO_RAW")
-            if pd.isna(b) or str(b).strip() in ["", "nan", "None"]:
-                mat_bloco = str(row.get("MAT_BLOCO", ""))
-                if "-" in mat_bloco: b = mat_bloco.rsplit("-", 1)[-1]
-                else: return ""
-            # Limpeza radical: pega só os números antes do ponto e limpa espaços
-            return str(b).strip().split(".")[0].upper()
-
-        df_dia["BLOCO"] = df_dia.apply(extrair_bloco, axis=1)
-
+        # 3. Adiciona Resumo usando o mapa global
         mapa = get_mapa_resumido_processos()
-        def resumir(proc):
-            proc_up = str(proc).strip().upper()
-            return mapa.get(proc_up, proc_up)
-
-        df_dia["RESUMIDO"] = df_dia["PROCESSO_APONTADO"].apply(resumir)
-        df_dia["QTD_CH"] = pd.to_numeric(df_dia["QTD_CH"], errors="coerce").fillna(0)
-        df_dia["QTD_M2"] = pd.to_numeric(df_dia.get("QTD_M2", 0), errors="coerce").fillna(0)
-
-        colunas = ["BLOCO", "NOME_MATERIAL", "MAT_BLOCO", "PROCESSO_APONTADO", "RESUMIDO", "SETOR_AP", "QTD_CH", "QTD_M2", "DATA_REG"]
-        return df_dia[[c for c in colunas if c in df_dia.columns]].reset_index(drop=True)
+        def resumir_local(proc):
+            p_up = str(proc).strip().upper()
+            return mapa.get(p_up, p_up.split()[0] if p_up else "")
+            
+        df_final["RESUMIDO"] = df_final["PROCESSO_APONTADO"].apply(resumir_local)
+        
+        return df_final.reset_index(drop=True)
     except Exception as e:
-        print(f"Erro ao ler apontamentos do dia: {e}")
+        import traceback
+        print(f"Erro fatal no Super Loader: {traceback.format_exc()}")
         return pd.DataFrame()
 
 
