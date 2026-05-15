@@ -170,6 +170,10 @@ O arquivo `config.json` na raiz do projeto controla os caminhos:
 
 | Data | Alteração |
 |------|-----------|
+| 2026-05-15 | **Confronto Lado a Lado**: Nova interface na Aba 4 que divide a tela entre Plano (PCP) e Realizado (Fábrica) para auditoria instantânea |
+| 2026-05-15 | **Sincronização Automática**: Carregamento inteligente de apontamentos ao mudar a data, com botão de refresh para força bruta |
+| 2026-05-15 | **Robustez de Datas (Brasil)**: Implementado `dayfirst=True` e tratamento de `AttributeError` para datas vindas do Excel |
+| 2026-05-15 | **Mapeamento de Colunas Elástico**: Expansão de aliases para detecção de colunas de apontamento, mesmo com nomes variados |
 | 2026-05-14 | **Self-Healing de Setores**: Autopreenchimento de máquinas baseado na Base de Dados (corrige erros de fórmulas do Excel) |
 | 2026-05-14 | **Clusterização UI**: Janela de Programação organizada em blocos lógicos (resiliência a erros de escopo e NameError) |
 | 2026-05-14 | **Remoção de Agendamentos**: Interface permite desmarcar blocos para limpar datas e resetar status no banco de dados |

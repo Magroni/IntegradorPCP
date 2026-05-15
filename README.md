@@ -7,7 +7,7 @@ Sistema web de **PCP (Planejamento e Controle da Produção)** para gestão de b
 - **📊 Cadastro de Blocos** — Adicionar e editar blocos com roteiro completo de processos
 - **👁️ Base de Dados** — Visualização e filtro da programação completa
 - **🗓️ Janela de Programações** — Fila de trabalho com alocação de máquinas em lote
-- **✅ Apontamento** — Cruzamento automático com planilha de apontamento + indicador de aderência
+- **✅ Apontamento** — Confronto visual Lado a Lado (PCP vs Fábrica) com cruzamento automático e indicador de aderência
 - **🖨️ Exportação** — Relatório HTML pronto para impressão (Ctrl+P)
 - **⚙️ Opções Gerais** — Configuração dinâmica de arquivos e abas do Excel
 
