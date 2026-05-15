@@ -1048,34 +1048,7 @@ with tab_apontamento:
     if maq_ap_sel != "Todos":
         df_prog_dia = df_prog_dia[df_prog_dia["SETOR"] == maq_ap_sel]
 
-    # --- NOVO TOPO: INVESTIGAÇÃO / CONFRONTO DIRETO ---
-    st.subheader("🔍 Confronto Direto: PCP vs Fábrica")
-    bloco_inv = st.text_input("Investigar Bloco Específico:", placeholder="Digite o bloco (ex: 7179)", key="bloco_inv_hero")
-    
-    if bloco_inv:
-        b_norm_inv = dm.normalize_bloco(bloco_inv)
-        c_inv1, c_inv2 = st.columns(2)
-        with c_inv1:
-            st.markdown(f"**📅 PCP (Programado) - {data_ap_str}:**")
-            # Filtra na base global (df) o que estava agendado para aquele bloco naquele dia
-            df_prog_inv = df[df["BLOCO"].apply(dm.normalize_bloco) == b_norm_inv]
-            df_prog_inv = df_prog_inv[df_prog_inv["DATA"].apply(lambda x: is_same_day(x, data_ap_sel))]
-            if not df_prog_inv.empty:
-                st.dataframe(df_prog_inv[["SETOR", "PROCESSO", "QTD. CHAPAS", "STATUS PROCESSO"]], use_container_width=True, hide_index=True)
-            else:
-                st.info("Nada programado no PCP para este bloco hoje.")
-        with c_inv2:
-            st.markdown(f"**🏭 Fábrica (Apontado) - {data_ap_str}:**")
-            if not df_ap.empty:
-                df_ap_inv = df_ap[df_ap["BLOCO"].apply(dm.normalize_bloco) == b_norm_inv]
-                if not df_ap_inv.empty:
-                    st.dataframe(df_ap_inv[["SETOR_AP", "PROCESSO_APONTADO", "QTD_CH"]], use_container_width=True, hide_index=True)
-                else:
-                    st.warning("Sem registro de produção no Excel para este bloco hoje.")
-            else:
-                st.error("Dados da fábrica não carregados. Verifique a data e clique em Atualizar se necessário.")
-    
-    st.divider()
+    st.write("---")
 
     # Mapa de bloco -> SETOR_AP do apontamento (para preencher máquinas sem SETOR)
     bloco_para_setor_ap = {}
@@ -1149,14 +1122,14 @@ with tab_apontamento:
     total_confirmados_efetivo = total_ja_confirmados + total_encontrados
     aderencia = (total_confirmados_efetivo / total_prog * 100) if total_prog > 0 else 0
 
-    st.write("---")
+    st.subheader(f"📊 Resumo da Produção - {data_ap_str}")
     col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
-    col_m1.metric("Programados no Dia", total_prog)
+    col_m1.metric("Programados", total_prog)
     col_m2.metric("🟢 Já Confirmados", total_ja_confirmados)
     col_m3.metric("✅ No Apontamento", total_encontrados)
-    col_m4.metric("❌ Não Apontados", total_prog - total_confirmados_efetivo)
+    col_m4.metric("❌ Pendentes", total_prog - total_confirmados_efetivo)
     cor_delta = "normal" if aderencia >= 80 else "inverse"
-    col_m5.metric("📊 Aderência", f"{aderencia:.1f}%",
+    col_m5.metric("📈 Aderência", f"{aderencia:.1f}%",
                     delta=f"{"✅ Boa" if aderencia>=80 else "⚠️ Baixa"}", delta_color=cor_delta)
     st.progress(min(aderencia / 100, 1.0))
 
@@ -1174,7 +1147,7 @@ with tab_apontamento:
         df_confirm["Material"]      = df_prog_dia["MATERIAL"].tolist()
         df_confirm["Processo Prog."]= df_prog_dia["PROCESSO"].tolist()
         df_confirm["Chapas Prog."]  = pd.to_numeric(df_prog_dia["QTD. CHAPAS"], errors="coerce").fillna(0).astype(int).tolist()
-        df_confirm["Apontado Como"] = match_info
+        df_confirm["Registro da Fábrica"] = match_info
 
         editado_confirm = st.data_editor(
             df_confirm,
@@ -1182,10 +1155,11 @@ with tab_apontamento:
                 "Confirmar?": st.column_config.CheckboxColumn("✅ Confirmar?", default=False),
                 "Index": None,
                 "Chapas Prog.": st.column_config.NumberColumn("Chapas Prog."),
+                "Registro da Fábrica": st.column_config.TextColumn("Relatório da Fábrica", width="large")
             },
             hide_index=True, use_container_width=True,
-            disabled=["Status", "Máquina", "Bloco", "Material", "Processo Prog.", "Chapas Prog.", "Apontado Como"],
-            key="editor_confirm_ap"
+            disabled=["Status", "Máquina", "Bloco", "Material", "Processo Prog.", "Chapas Prog.", "Registro da Fábrica"],
+            key="editor_confirm_ap_final"
         )
 
         confirmados_ap = editado_confirm[editado_confirm["Confirmar?"] == True]
