@@ -1106,7 +1106,7 @@ with tab_apontamento:
                     match_flags.append("✅ Encontrado")
                     match_info.append(f"{ap_row_encontrada['PROCESSO_APONTADO']} ({int(ap_row_encontrada['QTD_CH'])} ch)")
                 else:
-                    procs_ap = ", ".join(linhas_bloco["PROCESSO_APONTADO"].tolist())
+                                            procs_ap = ", ".join(linhas_bloco["PROCESSO_APONTADO"].tolist())
                     match_flags.append("⚠️ Bloco sim, processo diferente")
                     match_info.append(f"Apontado: {procs_ap}")
             else:
@@ -1116,81 +1116,84 @@ with tab_apontamento:
             match_flags.append("❌ Sem apontamento")
             match_info.append("-")
 
+    # --- SEÇÃO 1: RESUMO (MÉTRICAS) ---
     total_prog = len(df_prog_dia)
     total_ja_confirmados = sum(1 for f in match_flags if "🟢" in f)
     total_encontrados = sum(1 for f in match_flags if "✅" in f)
     total_confirmados_efetivo = total_ja_confirmados + total_encontrados
     aderencia = (total_confirmados_efetivo / total_prog * 100) if total_prog > 0 else 0
 
-    st.subheader(f"📊 Resumo da Produção - {data_ap_str}")
+    st.subheader(f"📊 Resumo Geral - {data_ap_str}")
     col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
     col_m1.metric("Programados", total_prog)
-    col_m2.metric("🟢 Já Confirmados", total_ja_confirmados)
-    col_m3.metric("✅ No Apontamento", total_encontrados)
-    col_m4.metric("❌ Pendentes", total_prog - total_confirmados_efetivo)
-    cor_delta = "normal" if aderencia >= 80 else "inverse"
-    col_m5.metric("📈 Aderência", f"{aderencia:.1f}%",
-                    delta=f"{"✅ Boa" if aderencia>=80 else "⚠️ Baixa"}", delta_color=cor_delta)
+    col_m2.metric("✅ No Apontamento", total_encontrados)
+    col_m3.metric("❌ Pendentes", total_prog - total_confirmados_efetivo)
+    col_m4.metric("🟢 Já Confirmados", total_ja_confirmados)
+    col_m5.metric("📈 Aderência", f"{aderencia:.1f}%")
     st.progress(min(aderencia / 100, 1.0))
 
     st.write("---")
-    if total_prog == 0:
-        st.info(f"Nenhuma produção estava programada para {data_ap_str} na máquina selecionada.")
-    else:
-        st.markdown(f"**Confirme abaixo o que foi realizado em {data_ap_str}:**")
-        df_confirm = pd.DataFrame()
-        df_confirm["Confirmar?"]    = [True if "✅" in f else False for f in match_flags]
-        df_confirm["Index"]         = df_prog_dia.index.tolist()
-        df_confirm["Status"]        = match_flags
-        df_confirm["Máquina"]       = maquinas_resolvidas  # Usa setor efetivo (nossa base ou apontamento)
-        df_confirm["Bloco"]         = df_prog_dia["BLOCO"].tolist()
-        df_confirm["Material"]      = df_prog_dia["MATERIAL"].tolist()
-        df_confirm["Processo Prog."]= df_prog_dia["PROCESSO"].tolist()
-        df_confirm["Chapas Prog."]  = pd.to_numeric(df_prog_dia["QTD. CHAPAS"], errors="coerce").fillna(0).astype(int).tolist()
-        df_confirm["Registro da Fábrica"] = match_info
 
-        editado_confirm = st.data_editor(
-            df_confirm,
-            column_config={
-                "Confirmar?": st.column_config.CheckboxColumn("✅ Confirmar?", default=False),
-                "Index": None,
-                "Chapas Prog.": st.column_config.NumberColumn("Chapas Prog."),
-                "Registro da Fábrica": st.column_config.TextColumn("Relatório da Fábrica", width="large")
-            },
-            hide_index=True, use_container_width=True,
-            disabled=["Status", "Máquina", "Bloco", "Material", "Processo Prog.", "Chapas Prog.", "Registro da Fábrica"],
-            key="editor_confirm_ap_final"
-        )
+    # --- SEÇÃO 2: LADO A LADO (O CONFRONTO REAL) ---
+    st.subheader(f"⚔️ Confronto Direto - {data_ap_str}")
+    
+    col_pcp, col_fab = st.columns(2)
+    
+    with col_pcp:
+        st.markdown("### 📋 Plano (PCP)")
+        if not df_prog_dia.empty:
+            # Seleciona colunas essenciais para o confronto
+            df_view_pcp = df_prog_dia[["SETOR", "BLOCO", "PROCESSO", "QTD. CHAPAS"]].copy()
+            st.dataframe(df_view_pcp, use_container_width=True, hide_index=True, height=400)
+        else:
+            st.info("Nenhuma programação para este dia.")
 
-        confirmados_ap = editado_confirm[editado_confirm["Confirmar?"] == True]
-        if st.button(
-            f"✅ Marcar {len(confirmados_ap)} processo(s) como REALIZADO em {data_ap_str}",
-            type="primary", disabled=len(confirmados_ap) == 0, key="btn_salvar_ap"
-        ):
-            erros_ap = []; sucessos_ap = 0
-            with st.spinner("Salvando..."):
-                for idx_ap in confirmados_ap["Index"]:
-                    if dm.update_cell_by_row(idx_ap, {"STATUS PROCESSO": "REALIZADO", "DATA REALIZADA": data_ap_str}):
-                        sucessos_ap += 1
-                    else:
-                        erros_ap.append(str(df.loc[idx_ap, "BLOCO"]))
-            if sucessos_ap > 0:
-                st.success(f"✅ {sucessos_ap} processo(s) marcado(s) como REALIZADO!")
-            for e in erros_ap:
-                st.error(f"🛑 Erro ao salvar bloco {e}")
-            if sucessos_ap > 0:
+    with col_fab:
+        st.markdown("### 🏭 Realizado (Fábrica)")
+        if not df_ap.empty:
+            # Seleciona colunas essenciais do apontamento
+            df_view_fab = df_ap[["SETOR_AP", "BLOCO", "PROCESSO_APONTADO", "QTD_CH"]].copy()
+            st.dataframe(df_view_fab, use_container_width=True, hide_index=True, height=400)
+        else:
+            st.warning("Nenhum apontamento carregado para este dia.")
+            if st.button("🔄 Carregar Apontamentos do Excel", use_container_width=True):
+                force_load_ap()
                 st.rerun()
+    st.write("---")
+    # --- SEÇÃO 3: FERRAMENTA DE CONFIRMAÇÃO ---
+    if total_prog > 0:
+        with st.expander("✅ Confirmar Realização e Sincronizar com Banco de Dados", expanded=True):
+            st.markdown("O sistema já marcou abaixo os itens que ele encontrou correspondência automática:")
+            df_confirm = pd.DataFrame()
+            df_confirm["Confirmar?"]    = [True if "✅" in f else False for f in match_flags]
+            df_confirm["Index"]         = df_prog_dia.index.tolist()
+            df_confirm["Bloco"]         = df_prog_dia["BLOCO"].tolist()
+            df_confirm["Processo Prog."]= df_prog_dia["PROCESSO"].tolist()
+            df_confirm["Status Cruzamento"] = match_flags
+            df_confirm["Encontrado na Fábrica Como"] = match_info
 
-    if not df_ap.empty:
-        blocos_prog_norm = set(dm.normalize_bloco(b) for b in df_prog_dia["BLOCO"].tolist()) if total_prog > 0 else set()
-        df_ap_extras = df_ap[~df_ap["BLOCO"].apply(dm.normalize_bloco).isin(blocos_prog_norm)]
-        if not df_ap_extras.empty:
-            with st.expander(f"📋 {len(df_ap_extras)} apontamento(s) sem programação correspondente", expanded=False):
-                st.dataframe(df_ap_extras[["BLOCO", "PROCESSO_APONTADO", "SETOR_AP", "QTD_CH"]],
-                                hide_index=True, use_container_width=True)
+            editado = st.data_editor(
+                df_confirm,
+                column_config={
+                    "Confirmar?": st.column_config.CheckboxColumn("Salvar?", default=False),
+                    "Index": None,
+                    "Encontrado na Fábrica Como": st.column_config.TextColumn("Relatório Fábrica", width="medium")
+                },
+                hide_index=True, use_container_width=True,
+                disabled=["Bloco", "Processo Prog.", "Status Cruzamento", "Encontrado na Fábrica Como"],
+                key="editor_sinc_final_v2"
+            )
 
-
-
+            confirmados = editado[editado["Confirmar?"] == True]
+            if st.button(f"💾 Salvar {len(confirmados)} Confirmações no Banco de Dados", type="primary", use_container_width=True):
+                sucessos = 0
+                with st.spinner("Sincronizando..."):
+                    for idx in confirmados["Index"]:
+                        if dm.update_cell_by_row(idx, {"STATUS PROCESSO": "REALIZADO", "DATA REALIZADA": data_ap_str}):
+                            sucessos += 1
+                if sucessos > 0:
+                    st.success(f"✅ {sucessos} processos atualizados!")
+                    st.rerun()
 with tab_export:
     st.header("🖨️ Exportação para o Chão de Fábrica")
     st.markdown("Selecione as datas, filtre a máquina se quiser e clique em Gerar. O relatório aparecerá na tela pronto para você pressionar **Ctrl + P** e imprimir!")
