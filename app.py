@@ -1026,7 +1026,10 @@ with tab_apontamento:
     # --- FILTRAGEM DA PROGRAMAÇÃO (USANDO PARSE_DT ROBUSTO) ---
     def is_same_day(d_val, target_date):
         dt = parse_dt(d_val)
-        return dt is not None and dt.date() == target_date
+        if dt is None: return False
+        # Se for datetime, extrai a data. Se já for date, usa diretamente.
+        d_only = dt.date() if hasattr(dt, "date") and callable(getattr(dt, "date")) else dt
+        return d_only == target_date
 
     # Filtra programação e realizados do dia
     df_prog_dia = df[df["DATA"].apply(lambda x: is_same_day(x, data_ap_sel))].copy()
