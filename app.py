@@ -1048,144 +1048,143 @@ with tab_apontamento:
     if maq_ap_sel != "Todos":
         df_prog_dia = df_prog_dia[df_prog_dia["SETOR"] == maq_ap_sel]
 
-        # Mapa de bloco -> SETOR_AP do apontamento (para preencher máquinas sem SETOR)
-        bloco_para_setor_ap = {}
-        if not df_ap.empty and "SETOR_AP" in df_ap.columns:
-            for _, r in df_ap.iterrows():
-                b_norm = dm.normalize_bloco(r["BLOCO"])
-                s_ap = str(r["SETOR_AP"]).strip()
-                if b_norm and s_ap and s_ap != "nan":
-                    bloco_para_setor_ap[b_norm] = s_ap
+    # Mapa de bloco -> SETOR_AP do apontamento (para preencher máquinas sem SETOR)
+    bloco_para_setor_ap = {}
+    if not df_ap.empty and "SETOR_AP" in df_ap.columns:
+        for _, r in df_ap.iterrows():
+            b_norm = dm.normalize_bloco(r["BLOCO"])
+            s_ap = str(r["SETOR_AP"]).strip()
+            if b_norm and s_ap and s_ap != "nan":
+                bloco_para_setor_ap[b_norm] = s_ap
 
-        # Lógica de Cruzamento Melhorada
-        match_flags = []
-        match_info  = []
-        maquinas_resolvidas = []  # setor efetivo (nossa base ou apontamento)
+    # Lógica de Cruzamento Melhorada
+    match_flags = []
+    match_info  = []
+    maquinas_resolvidas = []  # setor efetivo (nossa base ou apontamento)
+    
+    for _, row_prog in df_prog_dia.iterrows():
+        b = dm.normalize_bloco(row_prog["BLOCO"])
+        proc_prog = str(row_prog["PROCESSO"]).strip().upper()
+        # Quebra o processo programado em palavras-chave (ex: TELAR/MANTAR -> [TELAR, MANTAR])
+        import re
+        keywords_prog = [k for k in re.split(r'[^A-Z0-9]', proc_prog) if len(k) > 2]
         
-        for _, row_prog in df_prog_dia.iterrows():
-            b = dm.normalize_bloco(row_prog["BLOCO"])
-            proc_prog = str(row_prog["PROCESSO"]).strip().upper()
-            # Quebra o processo programado em palavras-chave (ex: TELAR/MANTAR -> [TELAR, MANTAR])
-            import re
-            keywords_prog = [k for k in re.split(r'[^A-Z0-9]', proc_prog) if len(k) > 2]
+        ja_realizado = str(row_prog.get("STATUS PROCESSO", "")).strip().upper() == "REALIZADO"
+        setor_prog = str(row_prog.get("SETOR", "")).strip()
+        
+        # Completa máquina a partir do apontamento se estiver vazio
+        setor_efetivo = setor_prog if setor_prog and setor_prog != "nan" else bloco_para_setor_ap.get(b, "N/I")
+        maquinas_resolvidas.append(setor_efetivo)
+        
+        if ja_realizado:
+            data_real = str(row_prog.get("DATA REALIZADA", ""))
+            match_flags.append("🟢 Já Confirmado")
+            match_info.append(f"Realizado em {data_real}")
+            continue
             
-            ja_realizado = str(row_prog.get("STATUS PROCESSO", "")).strip().upper() == "REALIZADO"
-            setor_prog = str(row_prog.get("SETOR", "")).strip()
-            
-            # Completa máquina a partir do apontamento se estiver vazio
-            setor_efetivo = setor_prog if setor_prog and setor_prog != "nan" else bloco_para_setor_ap.get(b, "N/I")
-            maquinas_resolvidas.append(setor_efetivo)
-            
-            if ja_realizado:
-                data_real = str(row_prog.get("DATA REALIZADA", ""))
-                match_flags.append("🟢 Já Confirmado")
-                match_info.append(f"Realizado em {data_real}")
-                continue
-                
-            if not df_ap.empty:
-                # Busca flexível por bloco
-                linhas_bloco = df_ap[df_ap["BLOCO"].apply(dm.normalize_bloco) == b]
-                if not linhas_bloco.empty:
-                    # Busca inteligente por processo (qualquer keyword batendo)
-                    match_proc = False
-                    ap_row_encontrada = None
-                    
-                    for _, r_ap in linhas_bloco.iterrows():
-                        proc_ap_res = str(r_ap.get("RESUMIDO", "")).upper()
-                        proc_ap_full = str(r_ap.get("PROCESSO_APONTADO", "")).upper()
-                        
-                        # Se as palavras-chave baterem com o resumido ou o nome completo
-                        if any(kw in proc_ap_res or kw in proc_ap_full for kw in keywords_prog):
-                            match_proc = True
-                            ap_row_encontrada = r_ap
-                            break
-                    
-                    if match_proc:
-                        match_flags.append("✅ Encontrado")
-                        match_info.append(f"{ap_row_encontrada['PROCESSO_APONTADO']} ({int(ap_row_encontrada['QTD_CH'])} ch)")
-                    else:
-                        procs_ap = ", ".join(linhas_bloco["PROCESSO_APONTADO"].tolist())
-                        match_flags.append("⚠️ Bloco sim, processo diferente")
-                        match_info.append(f"Apontado: {procs_ap}")
-                else:
-                    match_flags.append("❌ Não encontrado")
-                    match_info.append("-")
-            else:
-                match_flags.append("❌ Sem apontamento")
-                match_info.append("-")
-
-        total_prog = len(df_prog_dia)
-        total_ja_confirmados = sum(1 for f in match_flags if "🟢" in f)
-        total_encontrados = sum(1 for f in match_flags if "✅" in f)
-        total_confirmados_efetivo = total_ja_confirmados + total_encontrados
-        aderencia = (total_confirmados_efetivo / total_prog * 100) if total_prog > 0 else 0
-
-        st.write("---")
-        col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
-        col_m1.metric("Programados no Dia", total_prog)
-        col_m2.metric("🟢 Já Confirmados", total_ja_confirmados)
-        col_m3.metric("✅ No Apontamento", total_encontrados)
-        col_m4.metric("❌ Não Apontados", total_prog - total_confirmados_efetivo)
-        cor_delta = "normal" if aderencia >= 80 else "inverse"
-        col_m5.metric("📊 Aderência", f"{aderencia:.1f}%",
-                      delta=f"{"✅ Boa" if aderencia>=80 else "⚠️ Baixa"}", delta_color=cor_delta)
-        st.progress(min(aderencia / 100, 1.0))
-
-        st.write("---")
-        if total_prog == 0:
-            st.info(f"Nenhuma produção estava programada para {data_ap_str} na máquina selecionada.")
-        else:
-            st.markdown(f"**Confirme abaixo o que foi realizado em {data_ap_str}:**")
-            df_confirm = pd.DataFrame()
-            df_confirm["Confirmar?"]    = [True if "✅" in f else False for f in match_flags]
-            df_confirm["Index"]         = df_prog_dia.index.tolist()
-            df_confirm["Status"]        = match_flags
-            df_confirm["Máquina"]       = maquinas_resolvidas  # Usa setor efetivo (nossa base ou apontamento)
-            df_confirm["Bloco"]         = df_prog_dia["BLOCO"].tolist()
-            df_confirm["Material"]      = df_prog_dia["MATERIAL"].tolist()
-            df_confirm["Processo Prog."]= df_prog_dia["PROCESSO"].tolist()
-            df_confirm["Chapas Prog."]  = pd.to_numeric(df_prog_dia["QTD. CHAPAS"], errors="coerce").fillna(0).astype(int).tolist()
-            df_confirm["Apontado Como"] = match_info
-
-            editado_confirm = st.data_editor(
-                df_confirm,
-                column_config={
-                    "Confirmar?": st.column_config.CheckboxColumn("✅ Confirmar?", default=False),
-                    "Index": None,
-                    "Chapas Prog.": st.column_config.NumberColumn("Chapas Prog."),
-                },
-                hide_index=True, use_container_width=True,
-                disabled=["Status", "Máquina", "Bloco", "Material", "Processo Prog.", "Chapas Prog.", "Apontado Como"],
-                key="editor_confirm_ap"
-            )
-
-            confirmados_ap = editado_confirm[editado_confirm["Confirmar?"] == True]
-            if st.button(
-                f"✅ Marcar {len(confirmados_ap)} processo(s) como REALIZADO em {data_ap_str}",
-                type="primary", disabled=len(confirmados_ap) == 0, key="btn_salvar_ap"
-            ):
-                erros_ap = []; sucessos_ap = 0
-                with st.spinner("Salvando..."):
-                    for idx_ap in confirmados_ap["Index"]:
-                        if dm.update_cell_by_row(idx_ap, {"STATUS PROCESSO": "REALIZADO", "DATA REALIZADA": data_ap_str}):
-                            sucessos_ap += 1
-                        else:
-                            erros_ap.append(str(df.loc[idx_ap, "BLOCO"]))
-                if sucessos_ap > 0:
-                    st.success(f"✅ {sucessos_ap} processo(s) marcado(s) como REALIZADO!")
-                    del st.session_state["ap_data"]
-                for e in erros_ap:
-                    st.error(f"🛑 Erro ao salvar bloco {e}")
-                if sucessos_ap > 0:
-                    st.rerun()
-
         if not df_ap.empty:
-            blocos_prog_norm = set(dm.normalize_bloco(b) for b in df_prog_dia["BLOCO"].tolist()) if total_prog > 0 else set()
-            df_ap_extras = df_ap[~df_ap["BLOCO"].apply(dm.normalize_bloco).isin(blocos_prog_norm)]
-            if not df_ap_extras.empty:
-                with st.expander(f"📋 {len(df_ap_extras)} apontamento(s) sem programação correspondente", expanded=False):
-                    st.dataframe(df_ap_extras[["BLOCO", "PROCESSO_APONTADO", "SETOR_AP", "QTD_CH"]],
-                                 hide_index=True, use_container_width=True)
+            # Busca flexível por bloco
+            linhas_bloco = df_ap[df_ap["BLOCO"].apply(dm.normalize_bloco) == b]
+            if not linhas_bloco.empty:
+                # Busca inteligente por processo (qualquer keyword batendo)
+                match_proc = False
+                ap_row_encontrada = None
+                
+                for _, r_ap in linhas_bloco.iterrows():
+                    proc_ap_res = str(r_ap.get("RESUMIDO", "")).upper()
+                    proc_ap_full = str(r_ap.get("PROCESSO_APONTADO", "")).upper()
+                    
+                    # Se as palavras-chave baterem com o resumido ou o nome completo
+                    if any(kw in proc_ap_res or kw in proc_ap_full for kw in keywords_prog):
+                        match_proc = True
+                        ap_row_encontrada = r_ap
+                        break
+                
+                if match_proc:
+                    match_flags.append("✅ Encontrado")
+                    match_info.append(f"{ap_row_encontrada['PROCESSO_APONTADO']} ({int(ap_row_encontrada['QTD_CH'])} ch)")
+                else:
+                    procs_ap = ", ".join(linhas_bloco["PROCESSO_APONTADO"].tolist())
+                    match_flags.append("⚠️ Bloco sim, processo diferente")
+                    match_info.append(f"Apontado: {procs_ap}")
+            else:
+                match_flags.append("❌ Não encontrado")
+                match_info.append("-")
+        else:
+            match_flags.append("❌ Sem apontamento")
+            match_info.append("-")
+
+    total_prog = len(df_prog_dia)
+    total_ja_confirmados = sum(1 for f in match_flags if "🟢" in f)
+    total_encontrados = sum(1 for f in match_flags if "✅" in f)
+    total_confirmados_efetivo = total_ja_confirmados + total_encontrados
+    aderencia = (total_confirmados_efetivo / total_prog * 100) if total_prog > 0 else 0
+
+    st.write("---")
+    col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
+    col_m1.metric("Programados no Dia", total_prog)
+    col_m2.metric("🟢 Já Confirmados", total_ja_confirmados)
+    col_m3.metric("✅ No Apontamento", total_encontrados)
+    col_m4.metric("❌ Não Apontados", total_prog - total_confirmados_efetivo)
+    cor_delta = "normal" if aderencia >= 80 else "inverse"
+    col_m5.metric("📊 Aderência", f"{aderencia:.1f}%",
+                    delta=f"{"✅ Boa" if aderencia>=80 else "⚠️ Baixa"}", delta_color=cor_delta)
+    st.progress(min(aderencia / 100, 1.0))
+
+    st.write("---")
+    if total_prog == 0:
+        st.info(f"Nenhuma produção estava programada para {data_ap_str} na máquina selecionada.")
+    else:
+        st.markdown(f"**Confirme abaixo o que foi realizado em {data_ap_str}:**")
+        df_confirm = pd.DataFrame()
+        df_confirm["Confirmar?"]    = [True if "✅" in f else False for f in match_flags]
+        df_confirm["Index"]         = df_prog_dia.index.tolist()
+        df_confirm["Status"]        = match_flags
+        df_confirm["Máquina"]       = maquinas_resolvidas  # Usa setor efetivo (nossa base ou apontamento)
+        df_confirm["Bloco"]         = df_prog_dia["BLOCO"].tolist()
+        df_confirm["Material"]      = df_prog_dia["MATERIAL"].tolist()
+        df_confirm["Processo Prog."]= df_prog_dia["PROCESSO"].tolist()
+        df_confirm["Chapas Prog."]  = pd.to_numeric(df_prog_dia["QTD. CHAPAS"], errors="coerce").fillna(0).astype(int).tolist()
+        df_confirm["Apontado Como"] = match_info
+
+        editado_confirm = st.data_editor(
+            df_confirm,
+            column_config={
+                "Confirmar?": st.column_config.CheckboxColumn("✅ Confirmar?", default=False),
+                "Index": None,
+                "Chapas Prog.": st.column_config.NumberColumn("Chapas Prog."),
+            },
+            hide_index=True, use_container_width=True,
+            disabled=["Status", "Máquina", "Bloco", "Material", "Processo Prog.", "Chapas Prog.", "Apontado Como"],
+            key="editor_confirm_ap"
+        )
+
+        confirmados_ap = editado_confirm[editado_confirm["Confirmar?"] == True]
+        if st.button(
+            f"✅ Marcar {len(confirmados_ap)} processo(s) como REALIZADO em {data_ap_str}",
+            type="primary", disabled=len(confirmados_ap) == 0, key="btn_salvar_ap"
+        ):
+            erros_ap = []; sucessos_ap = 0
+            with st.spinner("Salvando..."):
+                for idx_ap in confirmados_ap["Index"]:
+                    if dm.update_cell_by_row(idx_ap, {"STATUS PROCESSO": "REALIZADO", "DATA REALIZADA": data_ap_str}):
+                        sucessos_ap += 1
+                    else:
+                        erros_ap.append(str(df.loc[idx_ap, "BLOCO"]))
+            if sucessos_ap > 0:
+                st.success(f"✅ {sucessos_ap} processo(s) marcado(s) como REALIZADO!")
+            for e in erros_ap:
+                st.error(f"🛑 Erro ao salvar bloco {e}")
+            if sucessos_ap > 0:
+                st.rerun()
+
+    if not df_ap.empty:
+        blocos_prog_norm = set(dm.normalize_bloco(b) for b in df_prog_dia["BLOCO"].tolist()) if total_prog > 0 else set()
+        df_ap_extras = df_ap[~df_ap["BLOCO"].apply(dm.normalize_bloco).isin(blocos_prog_norm)]
+        if not df_ap_extras.empty:
+            with st.expander(f"📋 {len(df_ap_extras)} apontamento(s) sem programação correspondente", expanded=False):
+                st.dataframe(df_ap_extras[["BLOCO", "PROCESSO_APONTADO", "SETOR_AP", "QTD_CH"]],
+                                hide_index=True, use_container_width=True)
 
 
 with tab_export:
