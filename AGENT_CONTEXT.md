@@ -71,13 +71,31 @@ Planilha mantida pelo operador. O sistema a lê em **modo somente leitura**.
 | `PARADAS` | Ocorrências de máquinas (ID, MOTIVO, DIA_INICIO, HORA_INICIO, DIA_FIM, HORA_FIM, TEMPO) |
 | `INSUMOS` | Detalhamento (ID, TIPO, DESCRICAO, QTD, UNID, TEMPO_SECAGEM, CABECAS, INSUMO_DETALHE) |
 
-#### Colunas relevantes da aba BD:
-- `DATA REG` — data do apontamento
-- `MATERIAL+BLOCO` — texto concatenado (ex: "ALPINUS-1234")
-- `Nº BLOCO` — número do bloco (às vezes vazio — extrair de MATERIAL+BLOCO)
-- `PROCESSO` — nome completo do processo conforme o operador registrou
-- `SETOR` — máquina usada
-- `QTD CH (SEM RET & REPASSE)` — quantidade de chapas produzidas
+#### Colunas reais da aba DB (cabeçalho na linha 0, sem sujeira):
+
+| Coluna | Descrição |
+|---|---|
+| `ID` | Identificador auto-incremento |
+| `DATA_REG` | Data em que o operador digitou o registro (NÃO usar para confronto) |
+| `MATERIAL` | Nome do material (ex: MAGMA, BLANC DU BLANC) |
+| `NUMERO_BLOCO` | Número do bloco (ex: 3706, 288, 7179) |
+| `PROCESSO` | Nome do processo (ex: RESINAR BRUTO, POLIR REFEITO) |
+| `SETOR` | Máquina/setor (ex: RESINA, CIMEF) |
+| `ESP` | Espessura |
+| `QTD_CHAPAS` | Quantidade de chapas produzidas |
+| `COMP`, `ALT`, `QTDM2` | Comprimento, Altura, Metros quadrados |
+| `OPERADOR` | Nome do operador |
+| **`DATA_INICIO`** | **Data real do trabalho na fábrica (USAR ESTA para confronto!)** |
+| `DATA_FIM` | Data de término do trabalho |
+| `HORA_INICIO`, `HORA_FIM` | Horários |
+| `TEMPO_PROCESSO` | Duração |
+| `TURNO` | D (Diurno) ou N (Noturno) |
+| `TIPO_RES`, `QTDKG_RES` | Tipo e Quantidade de resina |
+| `TIPO_ENDUR`, `QDKG_ENDUR` | Tipo e Quantidade de endurecedor |
+| `TEMPO_SECAGEM` | Tempo de secagem |
+| `SAT1..SAT20` | Sequência de abrasivos |
+
+> **IMPORTANTE**: Para o Confronto (Aba 4), a coluna correta é `DATA_INICIO`, NÃO `DATA_REG`.
 
 ---
 
@@ -170,10 +188,10 @@ O arquivo `config.json` na raiz do projeto controla os caminhos:
 
 | Data | Alteração |
 |------|-----------|
+| 2026-05-15 | **Fix Crítico DATA_INICIO**: Corrigido o campo de data usado no Confronto. Antes usava `DATA_REG` (data de digitação), agora usa `DATA_INICIO` (data real do trabalho na fábrica) |
+| 2026-05-15 | **Mapeamento Direto de Colunas**: Eliminada lógica genérica de "adivinhação" de colunas. Agora usa os nomes reais: `NUMERO_BLOCO`, `PROCESSO`, `SETOR`, `QTD_CHAPAS`, `MATERIAL` |
 | 2026-05-15 | **Confronto Lado a Lado**: Nova interface na Aba 4 que divide a tela entre Plano (PCP) e Realizado (Fábrica) para auditoria instantânea |
-| 2026-05-15 | **Sincronização Automática**: Carregamento inteligente de apontamentos ao mudar a data, com botão de refresh para força bruta |
-| 2026-05-15 | **Robustez de Datas (Brasil)**: Implementado `dayfirst=True` e tratamento de `AttributeError` para datas vindas do Excel |
-| 2026-05-15 | **Mapeamento de Colunas Elástico**: Expansão de aliases para detecção de colunas de apontamento, mesmo com nomes variados |
+| 2026-05-15 | **Sincronização Automática**: Carregamento inteligente de apontamentos ao mudar a data, com botão de refresh |
 | 2026-05-14 | **Self-Healing de Setores**: Autopreenchimento de máquinas baseado na Base de Dados (corrige erros de fórmulas do Excel) |
 | 2026-05-14 | **Clusterização UI**: Janela de Programação organizada em blocos lógicos (resiliência a erros de escopo e NameError) |
 | 2026-05-14 | **Remoção de Agendamentos**: Interface permite desmarcar blocos para limpar datas e resetar status no banco de dados |
