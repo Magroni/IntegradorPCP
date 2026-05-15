@@ -511,16 +511,13 @@ def get_mapa_resumido_processos():
 def get_apontamentos_do_dia(data_alvo_date):
     """
     Lê a aba de apontamentos diários do arquivo de Apontamento (cabeçalho na linha 7)
-    e retorna um DataFrame filtrado pela data_alvo_date.
-    Colunas retornadas: BLOCO, NOME_MATERIAL, PROCESSO_APONTADO, RESUMIDO, SETOR_AP, QTD_CH, DATA_REG
-    """
     try:
-        # Busca dinâmica do cabeçalho (procura pela linha que contém 'PROCESSO' ou 'DATA REG')
-        df_full = pd.read_excel(_get_apontamento_file(), sheet_name=_get_sheet("SHEET_AP_BD"), header=None, engine="openpyxl", nrows=20)
+        # Busca dinâmica do cabeçalho (procura em até 100 linhas)
+        df_full = pd.read_excel(_get_apontamento_file(), sheet_name=_get_sheet("SHEET_AP_BD"), header=None, engine="openpyxl", nrows=100)
         header_row = 6 # fallback padrão
         for i, row in df_full.iterrows():
             row_vals = [str(v).strip().upper() for v in row.values if pd.notna(v)]
-            if "PROCESSO" in row_vals or "DATA REG" in row_vals or "MATERIAL+BLOCO" in row_vals:
+            if "PROCESSO" in row_vals or "DATA REG" in row_vals or "MATERIAL+BLOCO" in row_vals or "BLOCO" in row_vals:
                 header_row = i
                 break
         
@@ -530,16 +527,16 @@ def get_apontamentos_do_dia(data_alvo_date):
             skiprows=header_row,
             engine="openpyxl"
         )
-        # Limpar nomes de colunas (há espaços e normalizar para maiúsculo)
+        # Limpar nomes de colunas
         orig_cols = [str(c).strip().upper() for c in df.columns]
         df.columns = orig_cols
 
-        # Mapeamento robusto (procura por nomes exatos ou parciais)
+        # Mapeamento robusto
         mapping = {
             "DATA_REG": ["DATA REG", "DATA", "DATA_REG", "DATA DO APONTAMENTO", "DATA LANÇAMENTO"],
             "MAT_BLOCO": ["MATERIAL+BLOCO", "MAT+BLO", "MATERIAL BLOCO", "MAT/BLO"],
             "NOME_MATERIAL": ["NOME MATERIAL", "MATERIAL", "NOME_MATERIAL", "DESCRIÇÃO MATERIAL"],
-            "BLOCO_RAW": ["NUMERO DO BLOCO", "Nº BLOCO", "NUM BLOCO", "BLOCO", "N BLOCO", "ID BLOCO", "7179"],
+            "BLOCO_RAW": ["NUMERO DO BLOCO", "Nº BLOCO", "NUM BLOCO", "BLOCO", "N BLOCO", "ID BLOCO", "IDENTIFICAÇÃO"],
             "PROCESSO_APONTADO": ["PROCESSO", "PROC", "PROCESSO_APONTADO", "ETAPA", "OPERACAO"],
             "SETOR_AP": ["SETOR", "MAQUINA", "MÁQUINA", "SETOR_AP", "LOCAL"],
             "QTD_CH": ["QTD. CHAPAS", "QTD CH (SEM RET & REPASSE)", "QTD CH", "CHAPAS", "QTD_CH", "TOTAL CHAPAS"],

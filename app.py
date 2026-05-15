@@ -1014,6 +1014,11 @@ with tab_apontamento:
         with st.spinner(f"Lendo apontamentos de {data_ap_sel.strftime('%d/%m/%Y')}..."):
             st.session_state["df_ap_cache"] = dm.get_apontamentos_do_dia(data_ap_sel)
             st.session_state["last_ap_date"] = data_ap_sel
+            
+            if st.session_state["df_ap_cache"].empty:
+                st.warning(f"⚠️ O arquivo foi lido, mas nenhum apontamento foi encontrado para o dia {data_ap_sel.strftime('%d/%m/%Y')}.")
+            else:
+                st.success(f"✅ {len(st.session_state['df_ap_cache'])} registros de produção carregados com sucesso!")
             if not st.session_state["df_ap_cache"].empty and "SETOR_AP" in st.session_state["df_ap_cache"].columns:
                 extras = set(str(x).strip() for x in st.session_state["df_ap_cache"]["SETOR_AP"].unique() if str(x).strip() not in ["", "nan"])
                 st.session_state["ap_setores_extras"] = extras
