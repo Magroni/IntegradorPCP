@@ -1106,7 +1106,7 @@ with tab_apontamento:
                     match_flags.append("✅ Encontrado")
                     match_info.append(f"{ap_row_encontrada['PROCESSO_APONTADO']} ({int(ap_row_encontrada['QTD_CH'])} ch)")
                 else:
-                                            procs_ap = ", ".join(linhas_bloco["PROCESSO_APONTADO"].tolist())
+                    procs_ap = ", ".join(linhas_bloco["PROCESSO_APONTADO"].tolist())
                     match_flags.append("⚠️ Bloco sim, processo diferente")
                     match_info.append(f"Apontado: {procs_ap}")
             else:
