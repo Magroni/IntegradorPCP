@@ -231,12 +231,25 @@ with tab_block:
                         st.session_state["bloco_carregado"] = True
                         st.session_state["bloco_edit_id"] = str(bloco_busca)
                         primeira = df_b.iloc[0]
-                        st.session_state["mat_edit"] = str(primeira.get("MATERIAL", ""))
-                        st.session_state["dem_edit"] = str(primeira.get("DEMANDA", ""))
-                        try: st.session_state["qtd_edit"] = int(pd.to_numeric(primeira.get("QTD. CHAPAS", 0)))
-                        except: st.session_state["qtd_edit"] = 0
-                        try: st.session_state["vol_edit"] = float(pd.to_numeric(primeira.get("VOLUME M²", 0.0)))
-                        except: st.session_state["vol_edit"] = 0.0
+                        
+                        # Valores para o Session State (base)
+                        mat_val = str(primeira.get("MATERIAL", ""))
+                        dem_val = str(primeira.get("DEMANDA", ""))
+                        try: qtd_val = int(pd.to_numeric(primeira.get("QTD. CHAPAS", 0)))
+                        except: qtd_val = 0
+                        try: vol_val = float(pd.to_numeric(primeira.get("VOLUME M²", 0.0)))
+                        except: vol_val = 0.0
+                        
+                        st.session_state["mat_edit"] = mat_val
+                        st.session_state["dem_edit"] = dem_val
+                        st.session_state["qtd_edit"] = qtd_val
+                        st.session_state["vol_edit"] = vol_val
+                        
+                        # FORÇA ATUALIZAÇÃO DOS WIDGETS (Keys)
+                        st.session_state["e_mat"] = mat_val
+                        st.session_state["e_dem"] = dem_val
+                        st.session_state["e_qtd"] = qtd_val
+                        st.session_state["e_vol"] = vol_val
                         
                         rot = []
                         for _, r in df_b.iterrows():
