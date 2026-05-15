@@ -537,7 +537,7 @@ def get_apontamentos_do_dia(data_alvo_date):
 
         # Mapeamento robusto
         mapping = {
-            "DATA_REG": ["DATA REG", "DATA", "DATA_REG", "DATA DO APONTAMENTO", "DATA LANÇAMENTO"],
+            "DATA_REG": ["DATA INICIO", "DATA INÍCIO", "DATA DE INÍCIO", "DATA INÍCIO APONTAMENTO", "DATA REG", "DATA", "DATA_REG", "DATA DO APONTAMENTO", "DATA LANÇAMENTO"],
             "MAT_BLOCO": ["MATERIAL+BLOCO", "MAT+BLO", "MATERIAL BLOCO", "MAT/BLO"],
             "NOME_MATERIAL": ["NOME MATERIAL", "MATERIAL", "NOME_MATERIAL", "DESCRIÇÃO MATERIAL"],
             "BLOCO_RAW": ["NUMERO DO BLOCO", "Nº BLOCO", "NUM BLOCO", "BLOCO", "N BLOCO", "ID BLOCO", "IDENTIFICAÇÃO"],
