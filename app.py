@@ -1388,8 +1388,10 @@ with tab_analises:
             if alias.upper() in df_raw_an.columns: return alias.upper()
         return None
 
-    c_dt = find_col_an("DIA_INICIO")
-    c_hr = find_col_an("HORA_INICIO")
+    c_dt = find_col_an("DIA_FIM") or find_col_an("DIA_INICIO")
+    c_hr = find_col_an("HORA_FIM") or find_col_an("HORA_INICIO")
+    c_dt_ini = find_col_an("DIA_INICIO")
+    c_hr_ini = find_col_an("HORA_INICIO")
     c_m2 = find_col_an("QTD_M2")
     c_ch = find_col_an("QTD_CH")
     c_st = find_col_an("SETOR_AP")
@@ -1425,13 +1427,21 @@ with tab_analises:
         for col_num in [c_m2, c_ch]:
             df_an[col_num] = pd.to_numeric(df_an[col_num], errors='coerce').fillna(0)
 
-        df_an[c_dt] = pd.to_datetime(df_an[c_dt], errors='coerce', dayfirst=True)
-        df_an = df_an.dropna(subset=[c_dt])
+        if c_dt:
+            df_an[c_dt] = pd.to_datetime(df_an[c_dt], errors='coerce', dayfirst=True)
+        if c_dt_ini and c_dt_ini != c_dt:
+            df_an[c_dt_ini] = pd.to_datetime(df_an[c_dt_ini], errors='coerce', dayfirst=True)
         
         def get_dia_producao(row):
             dt = row[c_dt]
-            if pd.isna(dt): return None
             val_hr = row.get(c_hr)
+            
+            # Fallback a nível de linha se a data fim estiver vazia
+            if pd.isna(dt) and c_dt_ini:
+                dt = row[c_dt_ini]
+                val_hr = row.get(c_hr_ini)
+                
+            if pd.isna(dt): return None
             try:
                 hour = val_hr.hour if hasattr(val_hr, 'hour') else int(str(val_hr).split(":")[0])
                 if hour < 7: return (dt - timedelta(days=1)).date()

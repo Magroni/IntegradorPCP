@@ -1,5 +1,5 @@
 # AGENT_CONTEXT.md — Contexto do Projeto PCP Costa Granitos
-> **Atualizado em:** 2026-05-14 (v3)  
+> **Atualizado em:** 2026-05-21 (v4)  
 > **Propósito:** Arquivo de contexto para agentes de IA. Leia este arquivo antes de qualquer alteração no projeto.
 
 ---
@@ -10,7 +10,7 @@ Sistema web de **PCP (Planejamento e Controle da Produção)** para a **Costa Gr
 
 - **Stack:** Python + Streamlit (UI web local)
 - **Servidor:** Roda localmente via `run_app.bat`
-- **Persistência:** Arquivos Excel (`.xlsm` e `.xlsx`) — sem banco de dados relacional
+- **Persistência:** Arquivos Excel (`.xlsm`, `.xlsx`, `.xlsb`) — sem banco de dados relacional
 - **Caminhos configuráveis** via `config.json` (não hardcoded)
 - **Versão:** Controle de versão via Git
 - **Repositório Remoto:** [https://github.com/Magroni/IntegradorPCP.git](https://github.com/Magroni/IntegradorPCP.git)
@@ -97,6 +97,27 @@ Planilha mantida pelo operador. O sistema a lê em **modo somente leitura**.
 
 > **IMPORTANTE**: Para o Confronto (Aba 4), a coluna correta é `DATA_INICIO`, NÃO `DATA_REG`.
 
+### 3.3 PLANILHA BLOCOS.xlsb (Cadastro de Blocos)
+Caminho configurável via `config.json` → chave `"BLOCKS_FILE"`.
+
+- **Aba:** `PLAN. BLOCOS`
+- **Header:** Linha 9 (skiprows=8 no pandas)
+- **Colunas relevantes** (nomes reais com encoding variável):
+  - `Nº BLOCO` → Identificador do bloco (⚠️ encoding pode variar: `N° BLOCO`, `Nº BLOCO`)
+  - `MATERIAL` → Nome do material
+  - `COMP. (LIQUIDO)` → Comprimento líquido (m)
+  - `ALT. (LIQUIDO)` → Altura líquida (m)
+  - `LARG. (LIQUIDO)` → Largura líquida (m)
+
+> **CRÍTICO:** Os nomes de colunas neste arquivo .xlsb contêm caracteres especiais e encoding instável. A busca de colunas DEVE ser **dinâmica por keywords** (ex: buscar "BLOCO", "COMP"+"LIQUIDO") e **NUNCA hardcoded** como `N_BLOCO` ou `COMP_LIQUIDO`.
+
+### 3.4 Estoque Chapas.xlsx (Cadastro Secundário)
+Caminho configurável via `config.json` → chave `"CHAPAS_FILE"`.
+
+- **Aba:** `ENTRADAS`
+- Usado como **fallback** quando o bloco não é encontrado na PLANILHA BLOCOS
+- Busca flexível por colunas: `BLOCO`, `Nº BLOCO`, `N_BLOCO`, etc.
+
 ---
 
 ## 4. Arquitetura da Aplicação (app.py)
@@ -112,13 +133,21 @@ Planilha mantida pelo operador. O sistema a lê em **modo somente leitura**.
 | 6 | 📈 Análises e Indicadores | Dashboard de performance (M², Chapas, Turnos, Máquinas e Refeito). |
 | 7 | ⚙️ Opções Gerais | Configuração de caminhos dos arquivos + mapeamento Processo×Máquina. |
 
+### Padrão de gráficos empilhados (Aba 6)
+Os gráficos de barras empilhadas (Normal/Refeito) usam **cálculo explícito de ponto médio** para centralizar labels:
+1. Calcula `_y0` (início) e `_y1` (fim) de cada segmento via acumulação no pandas
+2. `_mid = (_y0 + _y1) / 2` → posição Y do texto
+3. `_label` → string formatada (vazio para valor=0, evita texto em barras vazias)
+4. **Todas as camadas** (bars, text_seg, text_totals) usam o **mesmo DataFrame** — obrigatório para `facet`
+5. Ordenação cronológica via **lista explícita** `sort=ordem_dias` (não `EncodingSortField`)
+
 ---
 
 ## 5. Módulo data_manager.py
 
 ### Configuração
 ```python
-get_config()       # Lê config.json → dicionário com DB_FILE e APONTAMENTO_FILE
+get_config()       # Lê config.json → dicionário com DB_FILE, APONTAMENTO_FILE, BLOCKS_FILE, CHAPAS_FILE
 save_config(cfg)   # Salva config.json
 _get_db_file()     # Retorna o caminho atual do DB de programação (leitura dinâmica)
 _get_apontamento_file()  # Retorna o caminho atual do apontamento
@@ -126,19 +155,27 @@ _get_apontamento_file()  # Retorna o caminho atual do apontamento
 
 ### Leitura de Dados
 ```python
-get_data()                         # Lê aba PROGRAMAÇÃO → DataFrame principal
+get_data()                         # Lê aba PROGRAMAÇÃO → DataFrame principal (normaliza BLOCO)
 get_base_dados()                   # Lê aba BASE DE DADOS → mapeamento Processo×Setor
 get_historico_medias_entregues()   # Lê aba ENTREGUES → médias históricas de chapas/dia por máquina
 get_apontamentos_do_dia(date)      # Lê aba BD do Apontamento → DataFrame do dia filtrado
+get_all_apontamentos()             # Lê todos os apontamentos (para Aba 6 - Indicadores)
 get_mapa_resumido_processos()      # Lê BASE DADOS do Apontamento → dict {processo_completo: resumido}
+get_bloco_info(bloco_id)           # Busca material e medidas na PLANILHA BLOCOS (1ª) ou ESTOQUE CHAPAS (fallback)
+get_apontamentos_por_bloco(bloco_id)  # Histórico de apontamentos de um bloco específico
 ```
+
+> **CRÍTICO (get_bloco_info):** Usa busca **dinâmica de colunas** (`find_col` com keywords) para lidar com encoding variável do `.xlsb`. Nunca referenciar colunas como `N_BLOCO` diretamente.
 
 ### Escrita de Dados
 ```python
 add_record(record_dict)            # Adiciona nova linha na aba PROGRAMAÇÃO
 update_cell_by_row(idx, updates)   # Atualiza colunas específicas de uma linha pelo índice pandas
-save_bloco_edits(bloco_id, rows_data) # Salva edições completas de um bloco
+salvar_edicao_bloco_excel(...)     # Salva edições completas de um bloco (insere/remove linhas)
 update_base_dados(df)              # Regrava a aba BASE DE DADOS com o df editado
+add_apontamento_batch(batch)       # Grava múltiplos apontamentos de uma vez (carrinho)
+add_paradas(paradas_list)          # Grava paradas na aba PARADAS
+add_insumos(insumos_list)          # Grava insumos na aba INSUMOS
 ```
 
 ### Validações de Negócio
@@ -147,6 +184,11 @@ validar_sequencia_bloco(df, bloco, idx, nova_data)
 # Garante que o processo anterior do bloco já está agendado ou realizado
 # antes de permitir o agendamento do processo atual.
 # Retorna (True, "") ou (False, "mensagem de erro")
+```
+
+### Normalização
+```python
+normalize_bloco(bloco)  # Padroniza ID: remove .0, espaços, força upper. Usado em get_data() e confronto.
 ```
 
 ---
@@ -165,6 +207,12 @@ validar_sequencia_bloco(df, bloco, idx, nova_data)
 
 6. **Gestão de Programação (Remoção)**: É possível remover blocos de um dia específico apenas desmarcando-os na Janela de Programações e clicando em "Confirmar Alterações". O sistema limpa a data no Excel e volta o status para "NÃO REALIZADO".
 
+7. **% Refeito dinâmico (Aba 6)**: O cálculo de `% Refeito` usa a **métrica selecionada** (Chapas ou M²). Se "Chapas" está selecionado → refeito_ch / total_ch; se "M²" → refeito_m2 / total_m2. O label também muda: `% Refeito (Chapas)` ou `% Refeito (M²)`.
+
+8. **Classificação Refeito/Normal**: Processos cujo nome contém `REPASSE`, `REFEITO` ou `REPROCESSO` são classificados como "Refeito". Processos com `RETOQUE` são **excluídos** das análises.
+
+9. **Data Fim e Dia de Produção (Aba 6)**: Para as análises e indicadores, a data e hora de finalização (`DIA_FIM` / `HORA_FIM`) são usadas como parâmetro de data. Se vazias, realiza fallback para `DIA_INICIO` / `HORA_INICIO`. Como o dia de produção começa às 07:00 e termina às 06:59 do dia subsequente (atendendo aos turnos de produção), qualquer processo finalizado antes de 07:00 AM é contabilizado na data de produção do dia anterior.
+
 ---
 
 ## 7. Configuração de Caminhos
@@ -173,8 +221,17 @@ O arquivo `config.json` na raiz do projeto controla os caminhos:
 
 ```json
 {
-    "DB_FILE": "z:\\PCP\\PROJETOS MARLON\\ProgramarProd\\DB.xlsm",
-    "APONTAMENTO_FILE": "z:\\PCP\\PROJETOS MARLON\\ProgramarProd\\DB.xlsx"
+    "DB_FILE": "z:\\PCP\\PROJETOS MARLON\\ProgramarProd\\COSTA GRAN. - PROGRAMAÇÕES - BASE DE DADOS.xlsm",
+    "APONTAMENTO_FILE": "z:\\PCP\\PROJETOS MARLON\\ProgramarProd\\Apontamento Produção (REV 2).xlsx",
+    "BLOCKS_FILE": "z:\\PCP\\PROJETOS MARLON\\ProgramarProd\\PLANILHA BLOCOS.xlsb",
+    "CHAPAS_FILE": "z:\\PCP\\PROJETOS MARLON\\ProgramarProd\\Estoque Chapas 2026.xlsx",
+    "SHEET_PROGRAMACAO": "DB",
+    "SHEET_ENTREGUES": "ENTREGUES",
+    "SHEET_BASE_DADOS": "BASE DE DADOS",
+    "SHEET_AP_BD": "DB",
+    "SHEET_AP_BASE": "BASE DADOS",
+    "SHEET_AP_PARADAS": "PARADAS",
+    "SHEET_AP_INSUMOS": "INSUMOS"
 }
 ```
 
@@ -187,7 +244,11 @@ O arquivo `config.json` na raiz do projeto controla os caminhos:
 ## 8. Histórico de Mudanças
 
 | Data | Alteração |
-|------|-----------|
+|------|-----------| 
+| 2026-05-21 | **Uso de Data Fim para Indicadores**: Alterado os indicadores de produção (Aba 6) para usar a data e hora de término (`DIA_FIM` / `HORA_FIM`) como base para contabilização de chapas e M², garantindo que processos longos (como serrada) sejam contabilizados no dia de término da produção. Mantido fallback para data inicial se a finalização estiver vazia. |
+| 2026-05-21 | **Fix Busca de Blocos (.xlsb)**: `get_bloco_info` reescrita com busca dinâmica de colunas via keywords (`find_col`). Antes falhava silenciosamente por hardcodar `N_BLOCO` que não existia (real: `Nº BLOCO` com encoding instável). Mesmo padrão aplicado para `COMP. (LIQUIDO)`, `ALT. (LIQUIDO)`, `LARG. (LIQUIDO)` |
+| 2026-05-21 | **Fix % Refeito**: Percentual agora respeita a métrica selecionada (Chapas ou M²). Antes sempre calculava com M² independente da seleção. Label também é dinâmico |
+| 2026-05-21 | **Fix Gráficos Empilhados (Aba 6)**: Labels centralizados dentro de cada segmento usando cálculo explícito de `_mid`. Corrigido erro "Facet charts require same data" unificando todas as camadas no mesmo DataFrame. Ordenação cronológica via lista explícita |
 | 2026-05-15 | **Fix Crítico DATA_INICIO**: Corrigido o campo de data usado no Confronto. Antes usava `DATA_REG` (data de digitação), agora usa `DATA_INICIO` (data real do trabalho na fábrica) |
 | 2026-05-15 | **Mapeamento Direto de Colunas**: Eliminada lógica genérica de "adivinhação" de colunas. Agora usa os nomes reais: `NUMERO_BLOCO`, `PROCESSO`, `SETOR`, `QTD_CHAPAS`, `MATERIAL` |
 | 2026-05-15 | **Confronto Lado a Lado**: Nova interface na Aba 4 que divide a tela entre Plano (PCP) e Realizado (Fábrica) para auditoria instantânea |
@@ -246,3 +307,16 @@ streamlit run app.py
 - [ ] Migração para servidor de rede / SharePoint (alterar `DB_FILE` no config.json)
 - [ ] Log de auditoria: registrar quem alterou qual data e quando
 - [ ] Melhorar performance do `data_editor` na fila quando houver muitos blocos pendentes
+
+---
+
+## 11. Armadilhas Conhecidas (Gotchas)
+
+1. **Encoding `.xlsb`**: O engine `pyxlsb` lê caracteres especiais (º, ², ç, ã) com encoding instável. **NUNCA** hardcodar nomes de colunas de arquivos `.xlsb`. Use busca por keywords.
+
+2. **Facet + Layer no Altair**: Gráficos facetados com múltiplas camadas (bars + text) exigem que **todas as camadas usem o mesmo DataFrame**. Usar DataFrames filtrados separados causa erro.
+
+3. **Ordenação de eixo nominal no Altair**: `sort=alt.EncodingSortField(field=...)` nem sempre funciona com camadas ou facets. Prefira **lista explícita** de valores ordenados: `sort=['14/05', '15/05', ...]`.
+
+4. **Stack order em barras empilhadas**: Para controlar qual segmento fica na base, use `order=alt.Order('_sort:Q')` com coluna numérica de ordenação (ex: Refeito=0, Normal=1).
+
