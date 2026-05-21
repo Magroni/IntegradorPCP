@@ -1458,18 +1458,19 @@ with tab_analises:
 
         m_tot_m2 = df_an[c_m2].sum(); m_tot_ch = df_an[c_ch].sum()
         m_refeito_m2 = df_an[df_an["REFEITO"]][c_m2].sum(); m_refeito_ch = df_an[df_an["REFEITO"]][c_ch].sum()
-        p_refeito = (m_refeito_m2 / m_tot_m2 * 100) if m_tot_m2 > 0 else 0
 
         c_met1, c_met2, c_met3, c_met4 = st.columns(4)
         if metrica_board == "Chapas":
+            p_refeito = (m_refeito_ch / m_tot_ch * 100) if m_tot_ch > 0 else 0
             c_met1.metric("Total Chapas", f"{int(m_tot_ch)}")
             c_met2.metric("Produção Normal", f"{int(df_an[df_an['REFEITO']==False][c_ch].sum())}")
             c_met3.metric("Produção Refeito", f"{int(m_refeito_ch)}")
         else:
+            p_refeito = (m_refeito_m2 / m_tot_m2 * 100) if m_tot_m2 > 0 else 0
             c_met1.metric("Total Produzido (M²)", f"{m_tot_m2:,.2f}")
             c_met2.metric("Produção Normal", f"{df_an[df_an['REFEITO']==False][c_m2].sum():,.2f}")
             c_met3.metric("Produção Refeito", f"{m_refeito_m2:,.2f}")
-        c_met4.metric("% Refeito (M²)", f"{p_refeito:.1f}%")
+        c_met4.metric(f"% Refeito ({metrica_board})", f"{p_refeito:.1f}%")
 
         st.divider()
         st.subheader(f"📊 Board de Produtividade Diária ({metrica_board})")
