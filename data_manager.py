@@ -1039,7 +1039,8 @@ def get_apontamentos_por_bloco(bloco_id):
 def get_bloco_info(bloco_id):
     """
     Busca informações de material e medidas na PLANILHA BLOCOS.xlsb.
-    Retorna dict com MATERIAL, COMP_LIQUIDO, ALT_LIQUIDO, LARG_LIQUIDO ou None.
+    Retorna dict com MATERIAL, COMP, ALT, LARG, SOURCE ou None.
+    Usa busca dinâmica de colunas para lidar com encoding e nomes variantes.
     """
     try:
         cfg = get_config()
@@ -1054,18 +1055,37 @@ def get_bloco_info(bloco_id):
         # Normaliza nomes de colunas
         df.columns = [str(c).strip().upper() for c in df.columns]
         
+        # --- Busca dinâmica de colunas (lida com encoding e variações) ---
+        def find_col(df_cols, keywords):
+            """Acha coluna cujo nome contém TODAS as keywords fornecidas."""
+            for c in df_cols:
+                c_clean = c.replace(".", "").replace("(", "").replace(")", "").replace("_", " ")
+                if all(kw in c_clean for kw in keywords):
+                    return c
+            return None
+        
+        col_bloco = find_col(df.columns, ["BLOCO"])
+        col_material = find_col(df.columns, ["MATERIAL"])
+        col_comp = find_col(df.columns, ["COMP", "LIQUIDO"])
+        col_alt = find_col(df.columns, ["ALT", "LIQUIDO"])
+        col_larg = find_col(df.columns, ["LARG", "LIQUIDO"])
+        
+        if not col_bloco:
+            print(f"[get_bloco_info] Coluna de bloco não encontrada. Colunas: {list(df.columns)}")
+            return None
+        
         # Busca o bloco (converte para string e remove .0)
         bloco_busca = str(bloco_id).strip().split(".")[0].upper()
-        df["N_BLOCO_STR"] = df["N_BLOCO"].astype(str).str.strip().str.split(".").str[0].str.upper()
+        df["_BLOCO_NORM"] = df[col_bloco].astype(str).str.strip().str.split(".").str[0].str.upper()
         
-        match = df[df["N_BLOCO_STR"] == bloco_busca]
+        match = df[df["_BLOCO_NORM"] == bloco_busca]
         if not match.empty:
             row = match.iloc[0]
             return {
-                "MATERIAL": str(row.get("MATERIAL", "")).strip().upper(),
-                "COMP": float(row.get("COMP_LIQUIDO", 0)),
-                "ALT": float(row.get("ALT_LIQUIDO", 0)),
-                "LARG": float(row.get("LARG_LIQUIDO", 0)),
+                "MATERIAL": str(row.get(col_material, "")).strip().upper() if col_material else "",
+                "COMP": float(pd.to_numeric(row.get(col_comp, 0), errors="coerce") or 0) if col_comp else 0,
+                "ALT": float(pd.to_numeric(row.get(col_alt, 0), errors="coerce") or 0) if col_alt else 0,
+                "LARG": float(pd.to_numeric(row.get(col_larg, 0), errors="coerce") or 0) if col_larg else 0,
                 "SOURCE": "Planilha de Blocos"
             }
     except Exception as e:

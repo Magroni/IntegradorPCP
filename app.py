@@ -1497,25 +1497,47 @@ with tab_analises:
             df_board_gr["MAQ_TURNO"] = df_board_gr[c_st] + " (" + df_board_gr[c_tr] + ")"
             df_board_gr["DIA"] = df_board_gr["DIA_PROD"].apply(lambda d: d.strftime('%d/%m'))
             
-            base = alt.Chart(df_board_gr).encode(
+            # Calcula ponto médio de cada segmento para centralizar texto
+            tipo_order = {"Refeito": 0, "Normal": 1}  # Refeito na base, Normal em cima
+            df_board_gr["_sort"] = df_board_gr["TIPO_PROD"].map(tipo_order)
+            df_board_gr = df_board_gr.sort_values(["DIA_PROD", "MAQ_TURNO", "_sort"]).reset_index(drop=True)
+            
+            df_board_gr["_y0"] = 0.0
+            df_board_gr["_y1"] = 0.0
+            for (dia, maq), grp in df_board_gr.groupby(["DIA_PROD", "MAQ_TURNO"]):
+                cum = 0.0
+                for idx in grp.index:
+                    val = df_board_gr.loc[idx, col_valor]
+                    df_board_gr.loc[idx, "_y0"] = cum
+                    df_board_gr.loc[idx, "_y1"] = cum + val
+                    cum += val
+            df_board_gr["_mid"] = (df_board_gr["_y0"] + df_board_gr["_y1"]) / 2
+            
+            # Label vazio para segmentos sem valor (evita texto em barras vazias)
+            fmt = '.0f' if metrica_board == 'Chapas' else '.1f'
+            df_board_gr["_label"] = df_board_gr[col_valor].apply(lambda v: f"{v:{fmt}}" if v > 0 else "")
+            
+            bars = alt.Chart(df_board_gr).mark_bar().encode(
                 x=alt.X('MAQ_TURNO:N', title=None, sort=None),
-                y=alt.Y(f'{col_valor}:Q', title=metrica_board),
-                color=alt.Color('TIPO_PROD:N', title='Tipo', scale=alt.Scale(domain=['Normal', 'Refeito'], range=['#00CC96', '#EF553B']))
+                y=alt.Y(f'{col_valor}:Q', title=metrica_board, stack='zero'),
+                color=alt.Color('TIPO_PROD:N', title='Tipo', scale=alt.Scale(domain=['Normal', 'Refeito'], range=['#00CC96', '#EF553B'])),
+                order=alt.Order('_sort:Q')
             )
             
-            bars = base.mark_bar()
-            
-            # Valores centrais maiores
-            text_seg = base.mark_text(
+            # Valores centralizados dentro de cada segmento
+            text_seg = alt.Chart(df_board_gr).mark_text(
                 align='center', baseline='middle', color='white', fontSize=15, fontWeight='bold', stroke='black', strokeWidth=0.5
-            ).encode(text=alt.Text(f'{col_valor}:Q', format='.0f' if metrica_board == 'Chapas' else '.1f'), detail='TIPO_PROD:N')
+            ).encode(
+                x=alt.X('MAQ_TURNO:N', sort=None),
+                y=alt.Y('_mid:Q'),
+                text=alt.Text('_label:N')
+            )
             
-            # Totais no topo maiores
+            # Totais no topo
             text_totals = alt.Chart(df_board_gr).mark_text(
                 align='center', baseline='bottom', dy=-5, fontSize=18, fontWeight='bold', color='white', stroke='black', strokeWidth=0.6
-            ).encode(x=alt.X('MAQ_TURNO:N', sort=None), y=alt.Y(f'sum({col_valor}):Q'), text=alt.Text(f'sum({col_valor}):Q', format='.0f' if metrica_board == 'Chapas' else '.1f'))
+            ).encode(x=alt.X('MAQ_TURNO:N', sort=None), y=alt.Y(f'sum({col_valor}):Q'), text=alt.Text(f'sum({col_valor}):Q', format=fmt))
             
-            # Escala dinâmica: Cada barra tem largura fixa, fazendo o gráfico expandir horizontalmente
             chart_layered = (bars + text_seg + text_totals).properties(width=alt.Step(100), height=450)
             
             faceted_chart = chart_layered.facet(
@@ -1533,19 +1555,91 @@ with tab_analises:
             st.subheader(f"📅 Evolução Diária ({metrica_board})")
             df_evol = df_an.groupby(["DIA_PROD", "TIPO_PROD"])[col_valor].sum().reset_index()
             df_evol["DIA"] = df_evol["DIA_PROD"].apply(lambda d: d.strftime('%d/%m'))
-            # Ordenação cronológica (ascending)
-            base_evol = alt.Chart(df_evol).encode(
-                x=alt.X('DIA:N', title='Dia', sort=alt.EncodingSortField(field='DIA_PROD', order='ascending')), 
-                y=alt.Y(f'{col_valor}:Q', title=metrica_board), 
-                color=alt.Color('TIPO_PROD:N', title='Tipo', scale=alt.Scale(domain=['Normal', 'Refeito'], range=['#00CC96', '#EF553B']))
+            
+            # Calcula ponto médio de cada segmento para centralizar texto
+            tipo_order_e = {"Refeito": 0, "Normal": 1}
+            df_evol["_sort"] = df_evol["TIPO_PROD"].map(tipo_order_e)
+            df_evol = df_evol.sort_values(["DIA_PROD", "_sort"]).reset_index(drop=True)
+            df_evol["_y0"] = 0.0; df_evol["_y1"] = 0.0
+            for dia, grp in df_evol.groupby("DIA_PROD"):
+                cum = 0.0
+                for idx in grp.index:
+                    val = df_evol.loc[idx, col_valor]
+                    df_evol.loc[idx, "_y0"] = cum
+                    df_evol.loc[idx, "_y1"] = cum + val
+                    cum += val
+            df_evol["_mid"] = (df_evol["_y0"] + df_evol["_y1"]) / 2
+            
+            # Label e ordenação cronológica
+            fmt_e = '.0f' if metrica_board == 'Chapas' else '.1f'
+            df_evol["_label"] = df_evol[col_valor].apply(lambda v: f"{v:{fmt_e}}" if v > 0 else "")
+            dias_ordenados = sorted(df_evol["DIA_PROD"].unique())
+            mapa_dias = {d: d.strftime('%d/%m') for d in dias_ordenados}
+            ordem_dias = [mapa_dias[d] for d in dias_ordenados]
+            df_evol["DIA"] = df_evol["DIA_PROD"].map(mapa_dias)
+            
+            bars_evol = alt.Chart(df_evol).mark_bar().encode(
+                x=alt.X('DIA:N', title='Dia', sort=ordem_dias),
+                y=alt.Y(f'{col_valor}:Q', title=metrica_board, stack='zero'),
+                color=alt.Color('TIPO_PROD:N', title='Tipo', scale=alt.Scale(domain=['Normal', 'Refeito'], range=['#00CC96', '#EF553B'])),
+                order=alt.Order('_sort:Q')
             )
-            st.altair_chart((base_evol.mark_bar() + base_evol.mark_text(align='center', baseline='middle', color='white', fontSize=16, fontWeight='bold', stroke='black', strokeWidth=0.5).encode(text=alt.Text(f'{col_valor}:Q', format='.0f' if metrica_board == 'Chapas' else '.1f'), detail='TIPO_PROD:N') + alt.Chart(df_evol).mark_text(align='center', baseline='bottom', dy=-5, fontSize=18, fontWeight='bold', color='white', stroke='black', strokeWidth=0.5).encode(x=alt.X('DIA:N', sort=alt.EncodingSortField(field='DIA_PROD', order='ascending')), y=alt.Y(f'sum({col_valor}):Q'), text=alt.Text(f'sum({col_valor}):Q', format='.0f' if metrica_board == 'Chapas' else '.1f'))).properties(height=450), use_container_width=True)
+            text_evol = alt.Chart(df_evol).mark_text(
+                align='center', baseline='middle', color='white', fontSize=16, fontWeight='bold', stroke='black', strokeWidth=0.5
+            ).encode(
+                x=alt.X('DIA:N', sort=ordem_dias),
+                y=alt.Y('_mid:Q'),
+                text=alt.Text('_label:N')
+            )
+            totals_evol = alt.Chart(df_evol).mark_text(
+                align='center', baseline='bottom', dy=-5, fontSize=18, fontWeight='bold', color='white', stroke='black', strokeWidth=0.5
+            ).encode(
+                x=alt.X('DIA:N', sort=ordem_dias),
+                y=alt.Y(f'sum({col_valor}):Q'),
+                text=alt.Text(f'sum({col_valor}):Q', format=fmt_e)
+            )
+            st.altair_chart((bars_evol + text_evol + totals_evol).properties(height=450), use_container_width=True)
             
         with c_gr2:
             st.subheader(f"🌙 Produtividade por Turno ({metrica_board})")
             df_turno = df_an.groupby([c_tr, "TIPO_PROD"])[col_valor].sum().reset_index()
-            base_turno = alt.Chart(df_turno).encode(x=alt.X(f'{c_tr}:N', title='Turno'), y=alt.Y(f'{col_valor}:Q', title=metrica_board), color=alt.Color('TIPO_PROD:N', title='Tipo', scale=alt.Scale(domain=['Normal', 'Refeito'], range=['#00CC96', '#EF553B'])))
-            st.altair_chart((base_turno.mark_bar() + base_turno.mark_text(align='center', baseline='middle', color='white', fontSize=16, fontWeight='bold', stroke='black', strokeWidth=0.5).encode(text=alt.Text(f'{col_valor}:Q', format='.0f' if metrica_board == 'Chapas' else '.1f'), detail='TIPO_PROD:N') + alt.Chart(df_turno).mark_text(align='center', baseline='bottom', dy=-5, fontSize=18, fontWeight='bold', color='white', stroke='black', strokeWidth=0.5).encode(x=alt.X(f'{c_tr}:N'), y=alt.Y(f'sum({col_valor}):Q'), text=alt.Text(f'sum({col_valor}):Q', format='.0f' if metrica_board == 'Chapas' else '.1f'))).properties(height=450), use_container_width=True)
+            
+            # Calcula ponto médio de cada segmento para centralizar texto
+            tipo_order_t = {"Refeito": 0, "Normal": 1}
+            df_turno["_sort"] = df_turno["TIPO_PROD"].map(tipo_order_t)
+            df_turno = df_turno.sort_values([c_tr, "_sort"]).reset_index(drop=True)
+            df_turno["_y0"] = 0.0; df_turno["_y1"] = 0.0
+            for turno, grp in df_turno.groupby(c_tr):
+                cum = 0.0
+                for idx in grp.index:
+                    val = df_turno.loc[idx, col_valor]
+                    df_turno.loc[idx, "_y0"] = cum
+                    df_turno.loc[idx, "_y1"] = cum + val
+                    cum += val
+            df_turno["_mid"] = (df_turno["_y0"] + df_turno["_y1"]) / 2
+            df_turno_text = df_turno[df_turno[col_valor] > 0].copy()
+            
+            bars_turno = alt.Chart(df_turno).mark_bar().encode(
+                x=alt.X(f'{c_tr}:N', title='Turno'),
+                y=alt.Y(f'{col_valor}:Q', title=metrica_board, stack='zero'),
+                color=alt.Color('TIPO_PROD:N', title='Tipo', scale=alt.Scale(domain=['Normal', 'Refeito'], range=['#00CC96', '#EF553B'])),
+                order=alt.Order('_sort:Q')
+            )
+            text_turno = alt.Chart(df_turno_text).mark_text(
+                align='center', baseline='middle', color='white', fontSize=16, fontWeight='bold', stroke='black', strokeWidth=0.5
+            ).encode(
+                x=alt.X(f'{c_tr}:N'),
+                y=alt.Y('_mid:Q'),
+                text=alt.Text(f'{col_valor}:Q', format='.0f' if metrica_board == 'Chapas' else '.1f')
+            )
+            totals_turno = alt.Chart(df_turno).mark_text(
+                align='center', baseline='bottom', dy=-5, fontSize=18, fontWeight='bold', color='white', stroke='black', strokeWidth=0.5
+            ).encode(
+                x=alt.X(f'{c_tr}:N'),
+                y=alt.Y(f'sum({col_valor}):Q'),
+                text=alt.Text(f'sum({col_valor}):Q', format='.0f' if metrica_board == 'Chapas' else '.1f')
+            )
+            st.altair_chart((bars_turno + text_turno + totals_turno).properties(height=450), use_container_width=True)
 
 
 # ----------------- ABA 7: OPÇÕES GERAIS -----------------
