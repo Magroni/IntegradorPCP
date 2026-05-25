@@ -213,6 +213,8 @@ normalize_bloco(bloco)  # Padroniza ID: remove .0, espaços, força upper. Usado
 
 9. **Data Fim e Dia de Produção (Aba 6)**: Para as análises e indicadores, a data e hora de finalização (`DIA_FIM` / `HORA_FIM`) são usadas como parâmetro de data. Se vazias, realiza fallback para `DIA_INICIO` / `HORA_INICIO`. Como o dia de produção começa às 07:00 e termina às 06:59 do dia subsequente (atendendo aos turnos de produção), qualquer processo finalizado antes de 07:00 AM é contabilizado na data de produção do dia anterior.
 
+10. **Blocos com Duplo Código (Equivalência)**: Suporte para blocos identificados por códigos compostos com barra `/` (ex: `4244/771418`). A comparação/busca flexível (`blocos_match`) é baseada na interseção das partes dos códigos. Assim, buscar por `4244` ou `771418` casará automaticamente com o bloco `4244/771418` em todo o sistema (Planilha de Blocos, Estoque de Chapas, Formulários de Edição, Fila de Cruzamento PCP/Apontamento e Consultas de Histórico).
+
 ---
 
 ## 7. Configuração de Caminhos
@@ -245,6 +247,7 @@ O arquivo `config.json` na raiz do projeto controla os caminhos:
 
 | Data | Alteração |
 |------|-----------| 
+| 2026-05-25 | **Blocos com Dupla Identificação**: Adicionado suporte robusto para blocos com códigos múltiplos separados por barra `/` (ex: `4244/771418`). A lógica `dm.blocos_match` analisa a intersecção de códigos e foi integrada no formulário de busca de blocos (Aba 1), no preenchimento de máquinas por apontamento e filtros de correspondência PCP-fábrica (Aba 4), bem como na busca dinâmica no Estoque de Chapas e na validação WIP de blocos. |
 | 2026-05-21 | **Uso de Data Fim para Indicadores**: Alterado os indicadores de produção (Aba 6) para usar a data e hora de término (`DIA_FIM` / `HORA_FIM`) como base para contabilização de chapas e M², garantindo que processos longos (como serrada) sejam contabilizados no dia de término da produção. Mantido fallback para data inicial se a finalização estiver vazia. |
 | 2026-05-21 | **Fix Busca de Blocos (.xlsb)**: `get_bloco_info` reescrita com busca dinâmica de colunas via keywords (`find_col`). Antes falhava silenciosamente por hardcodar `N_BLOCO` que não existia (real: `Nº BLOCO` com encoding instável). Mesmo padrão aplicado para `COMP. (LIQUIDO)`, `ALT. (LIQUIDO)`, `LARG. (LIQUIDO)` |
 | 2026-05-21 | **Fix % Refeito**: Percentual agora respeita a métrica selecionada (Chapas ou M²). Antes sempre calculava com M² independente da seleção. Label também é dinâmico |

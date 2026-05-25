@@ -90,6 +90,26 @@ def normalize_bloco(bloco):
     return b_str
 
 
+def blocos_match(bloco_a, bloco_b):
+    """
+    Verifica se dois códigos de blocos são equivalentes, suportando códigos duplos 
+    separados por barra '/' (ex: 4244 matches 4244/771418 e vice-versa).
+    """
+    if pd.isna(bloco_a) or pd.isna(bloco_b):
+        return False
+        
+    def get_parts(b):
+        b_clean = str(b).strip().upper()
+        if b_clean.endswith(".0"):
+            b_clean = b_clean[:-2]
+        return {p.strip() for p in b_clean.split("/") if p.strip()}
+        
+    parts_a = get_parts(bloco_a)
+    parts_b = get_parts(bloco_b)
+    
+    return bool(parts_a & parts_b)
+
+
 def get_data():
     """Lê a aba de Programação e autocompleta o SETOR se estiver vazio usando a Base de Dados."""
     try:
@@ -247,7 +267,7 @@ def validar_sequencia_bloco(df, bloco_id, index_atual, nova_data_str):
         if pd.isna(bloco_id) or str(bloco_id).strip() == "":
             return True, ""
 
-        df_bloco = df[df["BLOCO"] == bloco_id].copy()
+        df_bloco = df[df["BLOCO"].apply(lambda x: blocos_match(x, bloco_id))].copy()
         df_bloco = df_bloco.sort_index()
         indices_bloco = df_bloco.index.tolist()
 
@@ -1016,8 +1036,8 @@ def get_apontamentos_por_bloco(bloco_id):
             return pd.DataFrame()
             
         # Filtra o bloco
-        df[col_bloco] = df[col_bloco].astype(str).str.strip().str.split(".").str[0].str.upper()
-        historico = df[df[col_bloco] == str(bloco_id).strip().upper()].copy()
+        mask = df[col_bloco].apply(lambda x: blocos_match(x, bloco_id))
+        historico = df[mask].copy()
         
         # Seleciona colunas úteis para o histórico (mapeando para o que existir no REV 2)
         res_cols = []
@@ -1074,11 +1094,9 @@ def get_bloco_info(bloco_id):
             print(f"[get_bloco_info] Coluna de bloco não encontrada. Colunas: {list(df.columns)}")
             return None
         
-        # Busca o bloco (converte para string e remove .0)
-        bloco_busca = str(bloco_id).strip().split(".")[0].upper()
-        df["_BLOCO_NORM"] = df[col_bloco].astype(str).str.strip().str.split(".").str[0].str.upper()
-        
-        match = df[df["_BLOCO_NORM"] == bloco_busca]
+        # Busca o bloco usando a comparação flexível blocos_match
+        mask = df[col_bloco].apply(lambda x: blocos_match(x, bloco_id))
+        match = df[mask]
         if not match.empty:
             row = match.iloc[0]
             return {
@@ -1106,12 +1124,10 @@ def get_bloco_info(bloco_id):
             col_comp = next((c for c in ["COMP", "COMP.", "COMPRIMENTO", "C", "COMP_LIQUIDO"] if c in df_ch.columns), None)
             col_alt = next((c for c in ["ALT", "ALT.", "ALTURA", "A", "ALT_LIQUIDO", "LARGURA"] if c in df_ch.columns), None)
             col_esp = next((c for c in ["ESP", "ESP.", "ESPESSURA", "E", "LARG_LIQUIDO"] if c in df_ch.columns), None)
-
             if col_bloco:
-                df_ch["N_BLOCO_STR"] = df_ch[col_bloco].astype(str).str.strip().str.split(".").str[0].str.upper()
-                bloco_busca = str(bloco_id).strip().split(".")[0].upper()
-                
-                match = df_ch[df_ch["N_BLOCO_STR"] == bloco_busca]
+                # Busca o bloco usando a comparação flexível blocos_match
+                mask = df_ch[col_bloco].apply(lambda x: blocos_match(x, bloco_id))
+                match = df_ch[mask]
                 if not match.empty:
                     row = match.iloc[0]
                     return {

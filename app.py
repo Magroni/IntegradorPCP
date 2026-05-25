@@ -221,9 +221,8 @@ with tab_block:
                 if bloco_busca:
                     # Garantir que a busca seja flexível (removendo .0 de floats, espaços, etc)
                     bloco_limpo = str(bloco_busca).strip().upper()
-                    df["BLOCO_STR"] = df["BLOCO"].astype(str).str.replace(".0", "", regex=False).str.strip().str.upper()
-                    
-                    df_b = df[df["BLOCO_STR"] == bloco_limpo].copy()
+                    mask = df["BLOCO"].apply(lambda x: dm.blocos_match(x, bloco_limpo))
+                    df_b = df[mask].copy()
                     if df_b.empty:
                         st.warning("Bloco não encontrado.")
                         st.session_state["bloco_carregado"] = False
@@ -1060,6 +1059,11 @@ with tab_apontamento:
             b_norm = dm.normalize_bloco(r["BLOCO"])
             s_ap = str(r["SETOR_AP"]).strip()
             if b_norm and s_ap and s_ap != "nan":
+                if "/" in b_norm:
+                    for part in b_norm.split("/"):
+                        p_clean = part.strip()
+                        if p_clean:
+                            bloco_para_setor_ap[p_clean] = s_ap
                 bloco_para_setor_ap[b_norm] = s_ap
 
     # Lógica de Cruzamento Melhorada
@@ -1078,7 +1082,18 @@ with tab_apontamento:
         setor_prog = str(row_prog.get("SETOR", "")).strip()
         
         # Completa máquina a partir do apontamento se estiver vazio
-        setor_efetivo = setor_prog if setor_prog and setor_prog != "nan" else bloco_para_setor_ap.get(b, "N/I")
+        setor_efetivo = "N/I"
+        if setor_prog and setor_prog != "nan":
+            setor_efetivo = setor_prog
+        else:
+            if b in bloco_para_setor_ap:
+                setor_efetivo = bloco_para_setor_ap[b]
+            elif "/" in b:
+                for part in b.split("/"):
+                    p_clean = part.strip()
+                    if p_clean in bloco_para_setor_ap:
+                        setor_efetivo = bloco_para_setor_ap[p_clean]
+                        break
         maquinas_resolvidas.append(setor_efetivo)
         
         if ja_realizado:
@@ -1089,7 +1104,7 @@ with tab_apontamento:
             
         if not df_ap.empty:
             # Busca flexível por bloco
-            linhas_bloco = df_ap[df_ap["BLOCO"].apply(dm.normalize_bloco) == b]
+            linhas_bloco = df_ap[df_ap["BLOCO"].apply(lambda x: dm.blocos_match(x, b))]
             if not linhas_bloco.empty:
                 # Busca inteligente por processo (qualquer keyword batendo)
                 match_proc = False
