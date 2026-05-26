@@ -1609,7 +1609,13 @@ with tab_export:
         setores_exp = [str(x) for x in df["SETOR"].unique() if str(x) not in ["", "nan"]]
         maq_exp = st.selectbox("Máquina (Opcional)", ["Todas"] + sorted(setores_exp), key="maq_exp")
         
-    if st.button("📄 Gerar Relatório", type="primary"):
+    col_btn, col_chk = st.columns([1, 2])
+    with col_chk:
+        show_bw_export = st.checkbox("🕶️ Modo Alto Contraste (Preto e Branco para Impressão)", value=False, key="chk_bw_export")
+    with col_btn:
+        btn_click = st.button("📄 Gerar Relatório", type="primary", use_container_width=True)
+        
+    if btn_click:
         df_aberto_exp = df[df["STATUS PROCESSO"] != "REALIZADO"].copy()
         if maq_exp != "Todas":
             df_aberto_exp = df_aberto_exp[df_aberto_exp["SETOR"] == maq_exp]
@@ -1693,6 +1699,40 @@ with tab_export:
                 <td></td>
             </tr>"""
 
+            bw_style = ""
+            if show_bw_export:
+                bw_style = """
+                #relatorio-print, #relatorio-print * {
+                    color: #000000 !important;
+                    border-color: #000000 !important;
+                }
+                #relatorio-print {
+                    background: #ffffff !important;
+                }
+                #relatorio-print th {
+                    background: #cbd5e1 !important;
+                    border: 2px solid #000000 !important;
+                    font-weight: 700 !important;
+                }
+                #relatorio-print td {
+                    background: #ffffff !important;
+                    border: 1px solid #000000 !important;
+                }
+                #relatorio-print tr:nth-child(even):not(.subtotal):not(.total-geral) { background: #ffffff !important; }
+                #relatorio-print .subtotal td {
+                    background: #cbd5e1 !important;
+                    border-top: 2px solid #000000 !important;
+                    border-bottom: 2px solid #000000 !important;
+                    font-weight: bold !important;
+                }
+                #relatorio-print .total-geral td {
+                    background: #ffffff !important;
+                    border-top: 3px double #000000 !important;
+                    border-bottom: 3px double #000000 !important;
+                    font-weight: bold !important;
+                }
+                """
+
             html = f"""
             <style>
               @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
@@ -1731,6 +1771,8 @@ with tab_export:
                   .print-btn {{ display: none !important; }}
                   #relatorio-print table {{ font-size: 10px; }}
               }}
+              
+              {bw_style}
             </style>
             <div id="relatorio-print">
               <h2>🏷️ {titulo}</h2>
@@ -2447,7 +2489,9 @@ with tab_analises:
                             st.markdown("Gere um relatório operacional de inatividade e impactos financeiros estruturado no tradicional **Layout A3 Landscape (420mm x 297mm)**, ideal para apresentações formais de diretoria, impressão física ou salvamento em PDF.")
                             
                             show_a3 = st.checkbox("📂 Visualizar Relatório A3 de Paradas e Ociosidade", value=False, key="chk_relatorio_a3")
+                            show_bw = st.checkbox("🕶️ Modo Alto Contraste (Preto e Branco para Impressão)", value=False, key="chk_bw_print")
                             if show_a3:
+                                body_class = "bw-contrast" if show_bw else ""
                                 # Calcular faixa exata de datas cobertas no período filtrado
                                 faixa_datas = ""
                                 if not df_paradas_filtrado.empty and "DIA_PROD" in df_paradas_filtrado.columns:
@@ -2826,7 +2870,7 @@ with tab_analises:
                                             background: #15295f;
                                         }}
                                         
-                                        .a3-card {
+                                        .a3-card {{
                                             background: #ffffff;
                                             width: 100%;
                                             max-width: 1100px;
@@ -2836,35 +2880,35 @@ with tab_analises:
                                             padding: 6px 10px;
                                             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
                                             box-sizing: border-box;
-                                        }
+                                        }}
                                         
-                                        .header-a3 {
+                                        .header-a3 {{
                                             border-bottom: 2px solid #1e3a8a;
                                             padding-bottom: 2px;
                                             margin-bottom: 4px;
                                             display: flex;
                                             justify-content: space-between;
                                             align-items: flex-end;
-                                        }
+                                        }}
                                         
-                                        .header-a3 h1 {
+                                        .header-a3 h1 {{
                                             margin: 0;
                                             font-size: 13.5px;
                                             color: #1e3a8a;
                                             font-weight: 700;
                                             letter-spacing: -0.5px;
-                                        }
+                                        }}
                                         
-                                        .header-a3 .subtitle {
+                                        .header-a3 .subtitle {{
                                             margin: 2px 0 0 0;
                                             font-size: 7.5px;
                                             color: #64748b;
                                             text-transform: uppercase;
                                             font-weight: 600;
                                             letter-spacing: 1.5px;
-                                        }
+                                        }}
                                         
-                                        .meta-grid {
+                                        .meta-grid {{
                                             display: grid;
                                             grid-template-columns: repeat(4, 1fr);
                                             gap: 4px;
@@ -2874,27 +2918,27 @@ with tab_analises:
                                             border-radius: 6px;
                                             margin-top: 2px;
                                             font-size: 7.2px;
-                                        }
+                                        }}
                                         
-                                        .meta-item b {
+                                        .meta-item b {{
                                             color: #334155;
-                                        }
+                                        }}
                                         
-                                        .a3-columns {
+                                        .a3-columns {{
                                             display: grid;
                                             grid-template-columns: 1.12fr 1fr;
                                             gap: 6px;
                                             margin-bottom: 4px;
-                                        }
+                                        }}
                                         
-                                        .column-section {
+                                        .column-section {{
                                             border: 1px solid #cbd5e1;
                                             border-radius: 6px;
                                             padding: 4.5px;
                                             background: #ffffff;
-                                        }
+                                        }}
                                         
-                                        .section-title {
+                                        .section-title {{
                                             font-size: 8px;
                                             font-weight: 700;
                                             color: #1e3a8a;
@@ -2904,7 +2948,7 @@ with tab_analises:
                                             margin-bottom: 1.5px;
                                             text-transform: uppercase;
                                             letter-spacing: 0.5px;
-                                        }
+                                        }}
                                         
                                         .kpi-grid {{
                                             display: grid;
@@ -3036,6 +3080,7 @@ with tab_analises:
                                                 max-width: 100% !important;
                                                 height: 100% !important;
                                                 page-break-inside: avoid !important;
+                                                zoom: 90%; /* Escala nativa forcada no PDF a 100% */
                                             }}
                                             tr {{
                                                 page-break-inside: avoid !important;
@@ -3046,9 +3091,96 @@ with tab_analises:
                                             size: A4 landscape;
                                             margin: 0.4cm 0.6cm;
                                         }}
+                                        
+                                        /* Modo Alto Contraste (Preto e Branco) */
+                                        .bw-contrast {{
+                                            color: #000000 !important;
+                                            background: #ffffff !important;
+                                        }}
+                                        .bw-contrast .a3-card {{
+                                            border: 2.5px solid #000000 !important;
+                                            background: #ffffff !important;
+                                            box-shadow: none !important;
+                                        }}
+                                        .bw-contrast .header-a3 {{
+                                            border-bottom: 3px solid #000000 !important;
+                                        }}
+                                        .bw-contrast .header-a3 h1,
+                                        .bw-contrast .header-a3 span,
+                                        .bw-contrast .header-a3 .subtitle {{
+                                            color: #000000 !important;
+                                        }}
+                                        .bw-contrast .section-title {{
+                                            color: #000000 !important;
+                                            border-bottom: 2px solid #000000 !important;
+                                            font-weight: 700 !important;
+                                        }}
+                                        .bw-contrast .kpi-card {{
+                                            background: #ffffff !important;
+                                            border: 2px solid #000000 !important;
+                                        }}
+                                        .bw-contrast .kpi-val, 
+                                        .bw-contrast .kpi-lbl,
+                                        .bw-contrast .kpi-card div {{
+                                            color: #000000 !important;
+                                        }}
+                                        .bw-contrast table.a3-table th {{
+                                            background: #cbd5e1 !important;
+                                            color: #000000 !important;
+                                            border: 1.5px solid #000000 !important;
+                                            font-weight: 700 !important;
+                                        }}
+                                        .bw-contrast table.a3-table td {{
+                                            color: #000000 !important;
+                                            border: 1px solid #000000 !important;
+                                            background: #ffffff !important;
+                                        }}
+                                        .bw-contrast table.a3-table tr {{
+                                            background: #ffffff !important;
+                                        }}
+                                        .bw-contrast .progress-container {{
+                                            background: #ffffff !important;
+                                            border: 1px solid #000000 !important;
+                                        }}
+                                        .bw-contrast .progress-bar {{
+                                            background: #000000 !important;
+                                        }}
+                                        .bw-contrast .meta-grid {{
+                                            background: #ffffff !important;
+                                            border: 1.5px solid #000000 !important;
+                                        }}
+                                        .bw-contrast .meta-item,
+                                        .bw-contrast .meta-item b {{
+                                            color: #000000 !important;
+                                        }}
+                                        .bw-contrast .bottom-section {{
+                                            border: 2.5px solid #000000 !important;
+                                            background: #ffffff !important;
+                                        }}
+                                        .bw-contrast .column-section {{
+                                            border: 2px solid #000000 !important;
+                                        }}
+                                        .bw-contrast .action-cell {{
+                                            background: #ffffff !important;
+                                            border: 1.5px dashed #000000 !important;
+                                            color: #000000 !important;
+                                        }}
+                                        .bw-contrast .sig-line .line {{
+                                            border-top: 1.5px solid #000000 !important;
+                                        }}
+                                        .bw-contrast div[style*="border"] {{
+                                            border: 1.5px solid #000000 !important;
+                                        }}
+                                        .bw-contrast div[style*="background"]:not(.progress-bar) {{
+                                            background: #ffffff !important;
+                                        }}
+                                        .bw-contrast,
+                                        .bw-contrast * {{
+                                            color: #000000 !important;
+                                        }}
                                     </style>
                                 </head>
-                                <body>
+                                <body class="{body_class}">
                                     <div class="no-print">
                                         <button class="btn-print-a3" onclick="window.print()">🖨️ Imprimir / Salvar PDF (A4 / A3)</button>
                                     </div>
