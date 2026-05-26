@@ -2743,16 +2743,16 @@ with tab_analises:
                                     for card in severity_data:
                                         dur_str = format_to_hhmm(card["time"])
                                         lean_severity_cards_html += f"""
-                                        <div style="border: 1px solid {card['border']}; background: {card['bg']}; padding: 3px 5px; border-radius: 6px; text-align: center;">
-                                            <div style="font-size: 8px; font-weight: 700; color: #475569; text-transform: uppercase;">{card['title']}</div>
-                                            <div style="font-size: 11px; font-weight: 700; color: {card['color']}; margin: 1px 0;">{card['cnt']} ocor.</div>
-                                            <div style="font-size: 8px; font-weight: 600; color: #334155;">{dur_str} total</div>
-                                            <div style="width: 100%; margin-top: 2px;">
-                                                <div style="display:flex; justify-content:space-between; font-size:7px; color:#64748b; margin-bottom:1px;">
+                                        <div style="border: 1px solid {card['border']}; background: {card['bg']}; padding: 2px 3px; border-radius: 6px; text-align: center;">
+                                            <div style="font-size: 7px; font-weight: 700; color: #475569; text-transform: uppercase;">{card['title']}</div>
+                                            <div style="font-size: 9.5px; font-weight: 700; color: {card['color']}; margin: 1px 0;">{card['cnt']} ocor.</div>
+                                            <div style="font-size: 7px; font-weight: 600; color: #334155;">{dur_str} total</div>
+                                            <div style="width: 100%; margin-top: 1px;">
+                                                <div style="display:flex; justify-content:space-between; font-size:6px; color:#64748b; margin-bottom:1px;">
                                                     <span style="font-weight:700; color:{card['color']};">{card['pct']:.1f}%</span>
                                                     <span style="font-style:italic;">{card['tag']}</span>
                                                 </div>
-                                                <div class="progress-container" style="height: 2px; background: #e2e8f0; border-radius: 2px; overflow: hidden; margin-top: 1px;">
+                                                <div class="progress-container" style="height: 1.5px; background: #e2e8f0; border-radius: 1px; overflow: hidden; margin-top: 1px;">
                                                     <div class="progress-bar" style="width: {card['pct']:.1f}%; height: 100%; background: {card['color']};"></div>
                                                 </div>
                                             </div>
@@ -2770,7 +2770,21 @@ with tab_analises:
                                     if pd.notna(r.get("DATA_INICIO")):
                                         try:
                                             dt_str = pd.to_datetime(r["DATA_INICIO"]).strftime("%d/%m/%Y")
-                                                        html_a3 = f"""
+                                        except:
+                                            dt_str = str(r["DATA_INICIO"])
+                                            
+                                    ocorrencias_rows_html += f"""
+                                    <tr>
+                                        <td style='text-align:center;'>{int(r['ID_APONTAMENTO']) if pd.notna(r['ID_APONTAMENTO']) else '-'}</td>
+                                        <td style="font-weight:600; color:#334155;">{r[c_st]}</td>
+                                        <td>{r['MOTIVO_ORIGINAL']}</td>
+                                        <td style='text-align:center;'>{dt_str}</td>
+                                        <td style='text-align:center;'>{r['HORA_INICIO']} a {r['HORA_FIM']}</td>
+                                        <td style="font-weight:700; color:#EF553B; text-align:center;">{duration_str}</td>
+                                        <td style="font-weight:700; color:#1e3a8a; text-align:right;">{prej_fmt}</td>
+                                    </tr>"""
+                                    
+                                html_a3 = f"""
                                 <!DOCTYPE html>
                                 <html>
                                 <head>
@@ -2790,7 +2804,7 @@ with tab_analises:
                                         .no-print {{
                                             text-align: right;
                                             margin-bottom: 8px;
-                                            max-width: 1540px;
+                                            max-width: 1120px;
                                             margin-left: auto;
                                             margin-right: auto;
                                         }}
@@ -2812,85 +2826,85 @@ with tab_analises:
                                             background: #15295f;
                                         }}
                                         
-                                        .a3-card {{
+                                        .a3-card {
                                             background: #ffffff;
                                             width: 100%;
-                                            max-width: 1500px;
+                                            max-width: 1100px;
                                             margin: 0 auto;
                                             border: 1px solid #cbd5e1;
                                             border-radius: 8px;
-                                            padding: 8px 12px;
+                                            padding: 6px 10px;
                                             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
                                             box-sizing: border-box;
-                                        }}
+                                        }
                                         
-                                        .header-a3 {{
+                                        .header-a3 {
                                             border-bottom: 2px solid #1e3a8a;
-                                            padding-bottom: 4px;
-                                            margin-bottom: 6px;
+                                            padding-bottom: 2px;
+                                            margin-bottom: 4px;
                                             display: flex;
                                             justify-content: space-between;
                                             align-items: flex-end;
-                                        }}
+                                        }
                                         
-                                        .header-a3 h1 {{
+                                        .header-a3 h1 {
                                             margin: 0;
-                                            font-size: 16px;
+                                            font-size: 13.5px;
                                             color: #1e3a8a;
                                             font-weight: 700;
                                             letter-spacing: -0.5px;
-                                        }}
+                                        }
                                         
-                                        .header-a3 .subtitle {{
+                                        .header-a3 .subtitle {
                                             margin: 2px 0 0 0;
-                                            font-size: 8.5px;
+                                            font-size: 7.5px;
                                             color: #64748b;
                                             text-transform: uppercase;
                                             font-weight: 600;
                                             letter-spacing: 1.5px;
-                                        }}
+                                        }
                                         
-                                        .meta-grid {{
+                                        .meta-grid {
                                             display: grid;
                                             grid-template-columns: repeat(4, 1fr);
-                                            gap: 6px;
+                                            gap: 4px;
                                             background: #f8fafc;
                                             border: 1px solid #e2e8f0;
-                                            padding: 4px 8px;
+                                            padding: 2px 6px;
                                             border-radius: 6px;
-                                            margin-top: 3px;
-                                            font-size: 8.5px;
-                                        }}
+                                            margin-top: 2px;
+                                            font-size: 7.2px;
+                                        }
                                         
-                                        .meta-item b {{
+                                        .meta-item b {
                                             color: #334155;
-                                        }}
+                                        }
                                         
-                                        .a3-columns {{
+                                        .a3-columns {
                                             display: grid;
                                             grid-template-columns: 1.12fr 1fr;
-                                            gap: 10px;
-                                            margin-bottom: 6px;
-                                        }}
+                                            gap: 6px;
+                                            margin-bottom: 4px;
+                                        }
                                         
-                                        .column-section {{
+                                        .column-section {
                                             border: 1px solid #cbd5e1;
                                             border-radius: 6px;
-                                            padding: 8px;
+                                            padding: 4.5px;
                                             background: #ffffff;
-                                        }}
+                                        }
                                         
-                                        .section-title {{
-                                            font-size: 10px;
+                                        .section-title {
+                                            font-size: 8px;
                                             font-weight: 700;
                                             color: #1e3a8a;
-                                            border-bottom: 2px solid #f1f5f9;
-                                            padding-bottom: 2px;
+                                            border-bottom: 1px solid #f1f5f9;
+                                            padding-bottom: 1px;
                                             margin-top: 0;
-                                            margin-bottom: 4px;
+                                            margin-bottom: 1.5px;
                                             text-transform: uppercase;
                                             letter-spacing: 0.5px;
-                                        }}
+                                        }
                                         
                                         .kpi-grid {{
                                             display: grid;
@@ -2901,21 +2915,21 @@ with tab_analises:
                                         
                                         .kpi-card {{
                                             border: 1px solid #e2e8f0;
-                                            padding: 4px 6px;
+                                            padding: 3px 5px;
                                             border-radius: 6px;
                                             background: #f8fafc;
                                             text-align: center;
                                         }}
                                         
                                         .kpi-val {{
-                                            font-size: 13px;
+                                            font-size: 12px;
                                             font-weight: 700;
                                             color: #1e3a8a;
                                             margin-top: 2px;
                                         }}
                                         
                                         .kpi-lbl {{
-                                            font-size: 7.5px;
+                                            font-size: 7px;
                                             color: #64748b;
                                             text-transform: uppercase;
                                             font-weight: 600;
@@ -2924,20 +2938,20 @@ with tab_analises:
                                         table.a3-table {{
                                             width: 100%;
                                             border-collapse: collapse;
-                                            font-size: 8px;
+                                            font-size: 7.2px;
                                         }}
                                         
                                         table.a3-table th {{
                                             background: #f8fafc;
                                             color: #475569;
                                             font-weight: 700;
-                                            padding: 2px 4px;
+                                            padding: 1.5px 3px;
                                             border: 1px solid #cbd5e1;
                                             text-align: left;
                                         }}
                                         
                                         table.a3-table td {{
-                                            padding: 2px 3px;
+                                            padding: 1px 2px;
                                             border: 1px solid #cbd5e1;
                                             color: #334155;
                                         }}
@@ -3029,14 +3043,14 @@ with tab_analises:
                                         }}
                                         
                                         @page {{
-                                            size: A3 landscape;
+                                            size: A4 landscape;
                                             margin: 0.4cm 0.6cm;
                                         }}
                                     </style>
                                 </head>
                                 <body>
                                     <div class="no-print">
-                                        <button class="btn-print-a3" onclick="window.print()">🖨️ Imprimir / Salvar PDF em A3</button>
+                                        <button class="btn-print-a3" onclick="window.print()">🖨️ Imprimir / Salvar PDF (A4 / A3)</button>
                                     </div>
                                     
                                     <div class="a3-card">
@@ -3206,9 +3220,9 @@ with tab_analises:
                                         </div>
                                         
                                         <!-- Seção Inferior: Ocorrências Críticas (Top 5) -->
-                                        <div class="bottom-section" style="margin-bottom:0; padding: 6px 10px;">
-                                            <div class="section-title" style="margin-bottom:4px;">10. Ocorrências Mais Críticas de Paradas (Top 5 por Duração)</div>
-                                            <table class="a3-table" style="font-size: 8px;">
+                                        <div class="bottom-section" style="margin-bottom:0; padding: 4px 6px;">
+                                            <div class="section-title" style="margin-bottom:2px;">10. Ocorrências Mais Críticas de Paradas (Top 5 por Duração)</div>
+                                            <table class="a3-table" style="font-size: 6.8px;">
                                                 <thead>
                                                     <tr>
                                                         <th style='text-align:center; width:60px;'>ID Apont.</th>
@@ -3230,7 +3244,7 @@ with tab_analises:
                                 </html>
                                 """
                                 st.components.v1.html(html_a3, height=800, scrolling=True)
-                                st.info("💡 **Dica de Impressão:** Ao clicar no botão acima, a tela de impressão do navegador será aberta. Nas configurações de destino, selecione **Salvar como PDF** e defina o Tamanho do Papel como **A3** e o layout como **Paisagem (Landscape)** para obter a formatação corporativa perfeita!")
+                                st.info("💡 **Dica de Impressão:** Ao clicar no botão acima, a tela de impressão do navegador será aberta. Selecione **Salvar como PDF**, defina o Tamanho do Papel como **A4** (ou **A3** com a opção **Ajustar à página / Fit to page** ativada) e o layout como **Paisagem (Landscape)** para preencher a folha perfeitamente!")
 
                                 
         except Exception as e:
