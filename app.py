@@ -1809,7 +1809,6 @@ with tab_analises:
         if maquinas_sel:
             df_an = df_an[df_an[c_st].isin(maquinas_sel)]
         
-        df_an = df_an[~df_an[c_pr].astype(str).str.upper().str.contains("RETOQUE")]
         df_an["REFEITO"] = df_an[c_pr].astype(str).str.upper().str.contains("REPASSE|REFEITO|REPROCESSO")
         df_an["TIPO_PROD"] = df_an["REFEITO"].map({True: "Refeito", False: "Normal"})
 
@@ -2495,7 +2494,12 @@ with tab_analises:
                                     df_proc = df_an.groupby(c_pr)[[c_m2, c_ch]].sum().reset_index()
                                     df_proc = df_proc[df_proc[c_m2] > 0].sort_values(c_m2, ascending=False)
                                     total_m2_proc = df_proc[c_m2].sum()
-                                    for _, rp in df_proc.head(6).iterrows():
+                                    
+                                    top_n_proc = 6
+                                    df_proc_top = df_proc.head(top_n_proc)
+                                    df_proc_others = df_proc.iloc[top_n_proc:]
+                                    
+                                    for _, rp in df_proc_top.iterrows():
                                         pct_p = (rp[c_m2] / total_m2_proc * 100) if total_m2_proc > 0 else 0
                                         processos_rows_html += f"""
                                         <tr>
@@ -2508,6 +2512,25 @@ with tab_analises:
                                                 </div>
                                                 <div class="progress-container">
                                                     <div class="progress-bar" style="width: {pct_p}%; background: #3b82f6;"></div>
+                                                </div>
+                                            </td>
+                                        </tr>"""
+                                        
+                                    if not df_proc_others.empty:
+                                        others_m2 = df_proc_others[c_m2].sum()
+                                        others_ch = df_proc_others[c_ch].sum()
+                                        pct_others = (others_m2 / total_m2_proc * 100) if total_m2_proc > 0 else 0
+                                        processos_rows_html += f"""
+                                        <tr style='background:#f8fafc; font-style:italic;'>
+                                            <td style='font-weight:600; color:#64748b;'>OUTROS PROCESSOS ({len(df_proc_others)} proc.)</td>
+                                            <td style='text-align:center;'>{int(others_ch)} Ch</td>
+                                            <td style='text-align:right;'>{others_m2:,.1f} m²</td>
+                                            <td style='width:90px;'>
+                                                <div style='display:flex; justify-content:space-between; font-size:8px; color:#64748b; margin-bottom:1px;'>
+                                                    <span>{pct_others:.1f}%</span>
+                                                </div>
+                                                <div class="progress-container">
+                                                    <div class="progress-bar" style="width: {pct_others}%; background: #94a3b8;"></div>
                                                 </div>
                                             </td>
                                         </tr>"""

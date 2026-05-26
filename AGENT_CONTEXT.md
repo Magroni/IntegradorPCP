@@ -1,5 +1,5 @@
 # AGENT_CONTEXT.md — Contexto do Projeto PCP Costa Granitos
-> **Atualizado em:** 2026-05-26 (v8)  
+> **Atualizado em:** 2026-05-26 (v12)  
 > **Propósito:** Arquivo de contexto para agentes de IA. Leia este arquivo antes de qualquer alteração no projeto.
 
 ---
@@ -209,7 +209,7 @@ normalize_bloco(bloco)  # Padroniza ID: remove .0, espaços, força upper. Usado
 
 7. **% Refeito dinâmico (Aba 6)**: O cálculo de `% Refeito` usa a **métrica selecionada** (Chapas ou M²). Se "Chapas" está selecionado → refeito_ch / total_ch; se "M²" → refeito_m2 / total_m2. O label também muda: `% Refeito (Chapas)` ou `% Refeito (M²)`.
 
-8. **Classificação Refeito/Normal**: Processos cujo nome contém `REPASSE`, `REFEITO` ou `REPROCESSO` são classificados como "Refeito". Processos com `RETOQUE` são **excluídos** das análises.
+8. **Classificação Refeito/Normal**: Processos cujo nome contém `REPASSE`, `REFEITO` ou `REPROCESSO` são classificados como "Refeito". O setor produtivo (máquina/setor) **RETOQUE** e o seu processo associado **RETOCAR** são **incluídos** normalmente nas análises por solicitação do usuário, permitindo o correto apontamento de materiais de processo novo.
 
 9. **Data Fim e Dia de Produção (Aba 6)**: Para as análises e indicadores, a data e hora de finalização (`DIA_FIM` / `HORA_FIM`) são usadas como parâmetro de data. Se vazias, realiza fallback para `DIA_INICIO` / `HORA_INICIO`. Como o dia de produção começa às 07:00 e termina às 06:59 do dia subsequente (atendendo aos turnos de produção), qualquer processo finalizado antes de 07:00 AM é contabilizado na data de produção do dia anterior.
 
@@ -249,6 +249,10 @@ O arquivo `config.json` na raiz do projeto controla os caminhos:
 
 | Data | Alteração |
 |------|-----------| 
+| 2026-05-26 | **Definição de Setor Retoque e Processo Retocar (v12)**: Alinhado e documentado no contexto que **RETOQUE** é o setor produtivo (máquina/setor) e **RETOCAR** é o nome real do processo (processo/etapa). Ambos permanecem 100% incluídos nas análises operacionais (qualidade e produtividade) para permitir a divisão futura dos materiais de processo novo no apontamento. |
+| 2026-05-26 | **Inclusão Completa de Retoque / Retocar (v11)**: Revertida a regra de descarte de processos de retoque por solicitação do usuário. Os processos de `"RETOQUE"` e `"RETOCAR"` foram totalmente reintroduzidos nos dataframes de análise (`df_an`), permitindo que apareçam na qualidade e produtividade. O usuário fará uma divisão/saneamento dos apontamentos no Excel de modo que apenas novos materiais de processo novo sejam apontados como retoque normal. |
+| 2026-05-26 | **Exclusão de Processos de Retoque / Retocar (v10)**: Corrigido o vazamento de dados do processo "RETOCAR" nas análises de indicadores. A regra de negócio original determinava que processos de retoque deveriam ser excluídos, mas a checagem no Pandas usava apenas `.str.contains("RETOQUE")`, não filtrando o infinitivo "RETOCAR" usado nos apontamentos. Atualizado o filtro para `"RETOQUE|RETOCAR"`, removendo o setor/máquina RETOQUE dos relatórios de qualidade e produtividade e sanando a distorção (onde ele aparecia indevidamente com 18% de volume e 0% de refugo). |
+| 2026-05-26 | **Relatório A3 — Distribuição por Processo Totalizando 100% (v9)**: Corrigido o bug onde a tabela de Distribuição por Processo Produtivo no relatório A3 não somava 100% devido à exibição apenas dos top 6 processos. Implementado o agrupamento Pareto-style sob a linha "OUTROS PROCESSOS (X proc.)" para agrupar dinamicamente todos os demais processos fora do top 6, garantindo que o somatório da participação sempre inteire 100%. |
 | 2026-05-26 | **Relatório A3 Lean Operacional & Produtividade Integrada (Aba 6)**: Expandido o Relatório A3 para ser um painel de desempenho integrado de toda a operação da Costa Granitos. O novo layout A3 Landscape (420mm x 297mm) consolida de forma integrada a produtividade física total de Chapas e M² processados (com taxas de refugo/reprocesso normal vs refeito), uma matriz detalhada de produção por máquina e turno (Diurno D vs Noturno N), além dos KPIs de inatividade/paradas, Pareto de motivos de perdas e tabela de distribuição de impactos cruzando a taxa horária de custos ociosos editada. Otimizado com tipografia Inter e espaçamentos densos ideais para salvamento em PDF ou impressão em papel A3 real. |
 | 2026-05-26 | **Custos de Ociosidade Customizáveis por Setor (Aba 6)**: Substituído o custo hora global único por uma tabela interativa editável via `st.data_editor`. O usuário agora pode definir taxas horárias individualizadas por setor produtivo (máquina). O sistema salva as taxas automaticamente no `config.json` (chave `CUSTOS_SETORES`), recalculando em tempo real o prejuízo financeiro acumulado, com tooltips dinâmicos nos gráficos e detalhamento na tabela de ocorrências. |
 | 2026-05-26 | **Filtro de Máquinas e Análise de Paradas (Aba 6)**: Implementado filtro de multiselect para marcar/desmarcar de forma interativa quais máquinas visualizar nos indicadores. Adicionada a nova seção **⏹️ Análise de Paradas e Ociosidade** no final dos dashboards, cruzando a aba PARADAS com os apontamentos para revelar as principais causas e tempos de inatividade por motivo e por máquina de forma altamente visual (Altair). |
