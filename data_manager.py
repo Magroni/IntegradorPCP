@@ -16,6 +16,7 @@ _DEFAULT_CONFIG = {
     "SHEET_PROGRAMACAO": "DB",
     "SHEET_ENTREGUES": "ENTREGUES",
     "SHEET_BASE_DADOS": "BASE DE DADOS",
+    "SHEET_TIPO_SETORES": "TIPO_SETORES",
     "SHEET_AP_BD": "DB",
     "SHEET_AP_BASE": "BASE DADOS",
     "SHEET_AP_PARADAS": "PARADAS",
@@ -434,6 +435,95 @@ def update_base_dados(df_novo):
         return True
     except Exception as e:
         print(f"Erro ao atualizar base de dados: {e}")
+        return False
+
+
+def get_tipo_setores():
+    """Lê a aba de Tipo de Setores e retorna o DataFrame. Se a aba não existir, inicializa com os padrões."""
+    try:
+        db_file = _get_db_file()
+        sheet_name = _get_sheet("SHEET_TIPO_SETORES")
+        
+        # Tenta ler a aba
+        try:
+            df = pd.read_excel(db_file, sheet_name=sheet_name, engine="openpyxl")
+            return df
+        except ValueError:
+            # Aba não encontrada! Vamos inicializar e salvar os padrões
+            default_data = [
+                {"TIPO_PROCESSO": "Serrada / Corte", "SETORES": "SERRARIA, SERRADA EXTERNA"},
+                {"TIPO_PROCESSO": "Levigamento / Polimento", "SETORES": "CIMEF, BARSANTI"},
+                {"TIPO_PROCESSO": "Resinagem / Tela / Manta / Estuque", "SETORES": "RESINA"},
+                {"TIPO_PROCESSO": "Retoque", "SETORES": "RETOQUE"},
+                {"TIPO_PROCESSO": "Outros", "SETORES": "PROGRAMAÇÃO, BENEF. EXTERNO, TRATAMENTO EXTERNO"}
+            ]
+            df_default = pd.DataFrame(default_data)
+            
+            # Cria a aba no arquivo Excel
+            wb = openpyxl.load_workbook(db_file, keep_vba=True)
+            if sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+            else:
+                ws = wb.create_sheet(sheet_name)
+                
+            # Escreve cabeçalhos
+            ws.cell(row=1, column=1, value="TIPO_PROCESSO")
+            ws.cell(row=1, column=2, value="SETORES")
+            
+            # Escreve dados
+            for r_idx, row in enumerate(default_data, start=2):
+                ws.cell(row=r_idx, column=1, value=row["TIPO_PROCESSO"])
+                ws.cell(row=r_idx, column=2, value=row["SETORES"])
+                
+            wb.save(db_file)
+            return df_default
+            
+    except Exception as e:
+        print(f"Erro ao carregar ou inicializar tipo setores: {e}")
+        default_data = [
+            {"TIPO_PROCESSO": "Serrada / Corte", "SETORES": "SERRARIA, SERRADA EXTERNA"},
+            {"TIPO_PROCESSO": "Levigamento / Polimento", "SETORES": "CIMEF, BARSANTI"},
+            {"TIPO_PROCESSO": "Resinagem / Tela / Manta / Estuque", "SETORES": "RESINA"},
+            {"TIPO_PROCESSO": "Retoque", "SETORES": "RETOQUE"},
+            {"TIPO_PROCESSO": "Outros", "SETORES": "PROGRAMAÇÃO, BENEF. EXTERNO, TRATAMENTO EXTERNO"}
+        ]
+        return pd.DataFrame(default_data)
+
+
+def update_tipo_setores(df_novo):
+    """Sobrescreve as colunas TIPO_PROCESSO e SETORES na aba de Tipo de Setores."""
+    try:
+        db_file = _get_db_file()
+        sheet_name = _get_sheet("SHEET_TIPO_SETORES")
+        
+        wb = openpyxl.load_workbook(db_file, keep_vba=True)
+        if sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+        else:
+            ws = wb.create_sheet(sheet_name)
+            
+        # Garante que as colunas corretas estão limpas
+        ws.cell(row=1, column=1, value="TIPO_PROCESSO")
+        ws.cell(row=1, column=2, value="SETORES")
+        
+        # Limpa o conteúdo antigo
+        max_row = ws.max_row
+        for r in range(2, max_row + 1):
+            ws.cell(row=r, column=1).value = None
+            ws.cell(row=r, column=2).value = None
+            
+        # Escreve o novo conteúdo
+        for idx, row in df_novo.iterrows():
+            tipo_val = str(row.get("TIPO_PROCESSO", "")).strip()
+            setores_val = str(row.get("SETORES", "")).strip()
+            if tipo_val and tipo_val != "nan":
+                ws.cell(row=idx + 2, column=1, value=tipo_val)
+                ws.cell(row=idx + 2, column=2, value=setores_val if setores_val != "nan" else "")
+                
+        wb.save(db_file)
+        return True
+    except Exception as e:
+        print(f"Erro ao salvar tipo setores: {e}")
         return False
 
 

@@ -1,5 +1,5 @@
 # AGENT_CONTEXT.md — Contexto do Projeto PCP Costa Granitos
-> **Atualizado em:** 2026-05-21 (v4)  
+> **Atualizado em:** 2026-05-26 (v8)  
 > **Propósito:** Arquivo de contexto para agentes de IA. Leia este arquivo antes de qualquer alteração no projeto.
 
 ---
@@ -215,6 +215,8 @@ normalize_bloco(bloco)  # Padroniza ID: remove .0, espaços, força upper. Usado
 
 10. **Blocos com Duplo Código (Equivalência)**: Suporte para blocos identificados por códigos compostos com barra `/` (ex: `4244/771418`). A comparação/busca flexível (`blocos_match`) é baseada na interseção das partes dos códigos. Assim, buscar por `4244` ou `771418` casará automaticamente com o bloco `4244/771418` em todo o sistema (Planilha de Blocos, Estoque de Chapas, Formulários de Edição, Fila de Cruzamento PCP/Apontamento e Consultas de Histórico).
 
+11. **Filtro de Setores e Processos por Tipo de Produção (Aba 4)**: No formulário de apontamento, as listas de seleção dos campos "Máquina/Setor" e "2. Processo/Etapa" são totalmente dinâmicas. Ao selecionar o "Tipo de Processo", o campo "Máquina/Setor" filtra os setores permitidos e o campo "Processo/Etapa" filtra dinamicamente as etapas cujas máquinas pertencem àquele tipo de produção (resolvido por cruzamento de chaves entre a aba `TIPO_SETORES` e a aba `BASE DE DADOS`). Essas vinculações são governadas por tabelas editáveis na interface (Aba 7).
+
 ---
 
 ## 7. Configuração de Caminhos
@@ -247,6 +249,13 @@ O arquivo `config.json` na raiz do projeto controla os caminhos:
 
 | Data | Alteração |
 |------|-----------| 
+| 2026-05-26 | **Relatório A3 Lean Operacional & Produtividade Integrada (Aba 6)**: Expandido o Relatório A3 para ser um painel de desempenho integrado de toda a operação da Costa Granitos. O novo layout A3 Landscape (420mm x 297mm) consolida de forma integrada a produtividade física total de Chapas e M² processados (com taxas de refugo/reprocesso normal vs refeito), uma matriz detalhada de produção por máquina e turno (Diurno D vs Noturno N), além dos KPIs de inatividade/paradas, Pareto de motivos de perdas e tabela de distribuição de impactos cruzando a taxa horária de custos ociosos editada. Otimizado com tipografia Inter e espaçamentos densos ideais para salvamento em PDF ou impressão em papel A3 real. |
+| 2026-05-26 | **Custos de Ociosidade Customizáveis por Setor (Aba 6)**: Substituído o custo hora global único por uma tabela interativa editável via `st.data_editor`. O usuário agora pode definir taxas horárias individualizadas por setor produtivo (máquina). O sistema salva as taxas automaticamente no `config.json` (chave `CUSTOS_SETORES`), recalculando em tempo real o prejuízo financeiro acumulado, com tooltips dinâmicos nos gráficos e detalhamento na tabela de ocorrências. |
+| 2026-05-26 | **Filtro de Máquinas e Análise de Paradas (Aba 6)**: Implementado filtro de multiselect para marcar/desmarcar de forma interativa quais máquinas visualizar nos indicadores. Adicionada a nova seção **⏹️ Análise de Paradas e Ociosidade** no final dos dashboards, cruzando a aba PARADAS com os apontamentos para revelar as principais causas e tempos de inatividade por motivo e por máquina de forma altamente visual (Altair). |
+| 2026-05-26 | **Relatório A3 — Produtividade Detalhada (v8)**: A coluna esquerda do A3 foi expandida de 3 para 5 seções. Adicionadas: (4) **Tabela de Qualidade por Máquina** com chapas e m² Normal vs. Refeito por máquina e barra de % índice de rejeito com cor semafórica (verde <3%, amarelo 3–10%, vermelho >10%); (5) **Distribuição por Processo Produtivo** com top 6 processos por m² e barra de participação percentual. Os KPIs globais agora exibem desdobramento Normal/Refeito inline. O contexto introdutório passou a incluir número de dias ativos, média de chapas/dia e média de m²/dia calculados dinamicamente. Seções da coluna direita renumeradas de 6 a 10. |
+| 2026-05-26 | **Relatório A3 — Performance Integrada (v7)**: Reformulação completa do relatório A3 na Aba 6. Criado relatório boardroom-ready A3 Landscape consolidando TODOS os indicadores: produtividade (chapas + m² por máquina e turno), qualidade (refeito), paradas (pareto de motivos, impacto por máquina com taxa horária), ocorrências mais críticas (Top 5) e plano de ação Lean com 4 contramedidas e espaço para assinaturas. |
+| 2026-05-26 | **Configurações Gerais Resilientes (Aba 7)**: Resolvido o travamento no apontamento de novos arquivos. Substituída a validação rígida de existência física (`os.path.exists`) por avisos não impeditivos (`st.warning`), permitindo salvar caminhos de rede temporariamente inacessíveis. Implementado reset inteligente do `st.session_state` ao Salvar/Restaurar para sincronização visual imediata. Adicionado painel de emergência auto-suficiente caso a planilha principal falhe no carregamento, evitando o travamento do app (`st.stop()`). |
+| 2026-05-26 | **Filtros por Tipo de Produção**: Implementado isolamento de setores permitidos por tipo de processo. Adicionada a aba persistente `TIPO_SETORES` no Excel do PCP com auto-inicialização e tabela totalmente editável na interface (Aba 7). O formulário de apontamentos (Aba 4) agora restringe dinamicamente tanto a seleção do **Setor** quanto a do **Processo/Etapa** com base no tipo de processo escolhido para mitigar erros operacionais (ex: impede registrar processo de levigamento na máquina de resina ou selecionar processos incompatíveis). |
 | 2026-05-25 | **Blocos com Dupla Identificação**: Adicionado suporte robusto para blocos com códigos múltiplos separados por barra `/` (ex: `4244/771418`). A lógica `dm.blocos_match` analisa a intersecção de códigos e foi integrada no formulário de busca de blocos (Aba 1), no preenchimento de máquinas por apontamento e filtros de correspondência PCP-fábrica (Aba 4), bem como na busca dinâmica no Estoque de Chapas e na validação WIP de blocos. |
 | 2026-05-21 | **Uso de Data Fim para Indicadores**: Alterado os indicadores de produção (Aba 6) para usar a data e hora de término (`DIA_FIM` / `HORA_FIM`) como base para contabilização de chapas e M², garantindo que processos longos (como serrada) sejam contabilizados no dia de término da produção. Mantido fallback para data inicial se a finalização estiver vazia. |
 | 2026-05-21 | **Fix Busca de Blocos (.xlsb)**: `get_bloco_info` reescrita com busca dinâmica de colunas via keywords (`find_col`). Antes falhava silenciosamente por hardcodar `N_BLOCO` que não existia (real: `Nº BLOCO` com encoding instável). Mesmo padrão aplicado para `COMP. (LIQUIDO)`, `ALT. (LIQUIDO)`, `LARG. (LIQUIDO)` |
@@ -322,4 +331,6 @@ streamlit run app.py
 3. **Ordenação de eixo nominal no Altair**: `sort=alt.EncodingSortField(field=...)` nem sempre funciona com camadas ou facets. Prefira **lista explícita** de valores ordenados: `sort=['14/05', '15/05', ...]`.
 
 4. **Stack order em barras empilhadas**: Para controlar qual segmento fica na base, use `order=alt.Order('_sort:Q')` com coluna numérica de ordenação (ex: Refeito=0, Normal=1).
+
+5. **Validação Rígida no Streamlit**: Evite o uso de `st.stop()` global logo após a carga inicial de dados sem fornecer uma rota de emergência. Sempre que houver falha crítica ao carregar arquivos Excel, exiba a interface de configurações para que o usuário possa corrigir os caminhos de forma interativa na própria tela sem precisar editar manualmente o arquivo `config.json`.
 
