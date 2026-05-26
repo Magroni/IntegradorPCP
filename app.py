@@ -361,6 +361,40 @@ def render_opcoes_gerais(cfg_atual, df_base):
             else:
                 st.error("Ocorreu um erro ao salvar as configurações dos filtros.")
 
+    st.divider()
+    
+    # ---- SEÇÃO 4: CADASTRO E FAROL DE MOTIVOS DE PARADA ----
+    st.subheader("🛑 Cadastro e Farol Lean de Motivos de Parada")
+    st.markdown("Crie e edite a lista oficial de motivos de paradas que os operadores poderão selecionar no apontamento. Defina o **Farol Lean** correspondente para cada parada (`Operacional`, `Intervenção`, ou `Crítica`).")
+    
+    df_tp_base = dm.get_tipo_paradas()
+    if df_tp_base.empty:
+        df_tp_edit = pd.DataFrame(columns=["MOTIVO", "TIPO_PARADA"])
+    else:
+        df_tp_edit = df_tp_base[["MOTIVO", "TIPO_PARADA"]].copy()
+        
+    st.markdown("Edite a lista abaixo. O campo **Farol Lean (Tipo)** aceita as opções: `Operacional`, `Intervenção` ou `Crítica`.")
+    editado_tp = st.data_editor(
+        df_tp_edit,
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "MOTIVO": st.column_config.TextColumn("Motivo da Parada Padronizado", required=True),
+            "TIPO_PARADA": st.column_config.SelectboxColumn("Farol Lean (Tipo)", options=["Operacional", "Intervenção", "Crítica"], required=True)
+        },
+        key="editor_tipo_paradas_cfg"
+    )
+    
+    if st.button("💾 Salvar Cadastro de Paradas no Banco de Dados", type="primary", key="btn_salvar_tp"):
+        with st.spinner("Salvando na aba TIPO_PARADAS..."):
+            editado_tp = editado_tp.dropna(subset=["MOTIVO", "TIPO_PARADA"], how="all")
+            sucesso = dm.update_tipo_paradas(editado_tp)
+            if sucesso:
+                st.success("Cadastro e Farol Lean de Paradas salvos com sucesso! A lista suspensa já está disponível no apontamento.")
+                st.rerun()
+            else:
+                st.error("Ocorreu um erro ao salvar as configurações das paradas.")
+
 
 # Load data
 df = dm.get_data()
@@ -1140,20 +1174,31 @@ with tab_apontamento:
                         
                         with c_i2:
                             st.caption("⏹️ Paradas de Máquina")
+                            
+                            # Carrega os motivos oficiais cadastrados
+                            df_tp_op = dm.get_tipo_paradas()
+                            lista_motivos_ap = sorted(list(df_tp_op["MOTIVO"].dropna().unique())) if not df_tp_op.empty else []
+                            
                             if "df_paradas_state" not in st.session_state:
                                 d_ontem = datetime.now() - timedelta(days=1)
                                 st.session_state["df_paradas_state"] = pd.DataFrame([{"MOTIVO": "", "DIA_INI": d_ontem, "HORA_INI": "", "DIA_FIM": d_ontem, "HORA_FIM": ""}])
                             
+                            col_conf_paradas = {
+                                "DIA_INI": st.column_config.DateColumn("D.Início", format="DD/MM/YYYY"),
+                                "DIA_FIM": st.column_config.DateColumn("D.Fim", format="DD/MM/YYYY"),
+                                "HORA_INI": st.column_config.TextColumn("H.Início"),
+                                "HORA_FIM": st.column_config.TextColumn("H.Fim")
+                            }
+                            if lista_motivos_ap:
+                                col_conf_paradas["MOTIVO"] = st.column_config.SelectboxColumn("Motivo da Parada*", options=lista_motivos_ap, required=True)
+                            else:
+                                col_conf_paradas["MOTIVO"] = st.column_config.TextColumn("Motivo da Parada*", required=True)
+                                
                             editado_paradas = st.data_editor(
                                 st.session_state["df_paradas_state"], 
                                 num_rows="dynamic", 
                                 use_container_width=True, 
-                                column_config={
-                                    "DIA_INI": st.column_config.DateColumn("D.Início", format="DD/MM/YYYY"),
-                                    "DIA_FIM": st.column_config.DateColumn("D.Fim", format="DD/MM/YYYY"),
-                                    "HORA_INI": st.column_config.TextColumn("H.Início"),
-                                    "HORA_FIM": st.column_config.TextColumn("H.Fim")
-                                },
+                                column_config=col_conf_paradas,
                                 key="editor_paradas_final"
                             )
 
@@ -2231,6 +2276,50 @@ with tab_analises:
                             df_paradas_filtrado["PREJUIZO"] = df_paradas_filtrado.apply(calc_prejuizo_linha, axis=1)
                             prejuizo_estimado = df_paradas_filtrado["PREJUIZO"].sum()
 
+                            # --- MAPEAMENTO PADRONIZADO E CLASSIFICAÇÃO DE PARADAS (FAROL LEAN) ---
+                            mapa_paradas = dm.get_mapeamento_paradas()
+                            
+                            # Carrega também o cadastro de paradas oficial editável (TIPO_PARADAS do DB.xlsm)
+                            df_tp_db = dm.get_tipo_paradas()
+                            tipo_paradas_db_map = {}
+                            if not df_tp_db.empty and "MOTIVO" in df_tp_db.columns and "TIPO_PARADA" in df_tp_db.columns:
+                                tipo_paradas_db_map = dict(zip(df_tp_db["MOTIVO"].astype(str).str.strip().str.upper(), df_tp_db["TIPO_PARADA"].astype(str).str.strip()))
+                            
+                            def map_motivo_padrao(row):
+                                raw_m = str(row.get("MOTIVO", "")).strip().upper()
+                                if raw_m in mapa_paradas:
+                                    return mapa_paradas[raw_m]["RESUMIDO"]
+                                return raw_m
+                                
+                            def map_tipo_parada(row):
+                                raw_m = str(row.get("MOTIVO", "")).strip().upper()
+                                # 1. Prioridade: cadastro oficial da Seção 4 (DB.xlsm)
+                                if raw_m in tipo_paradas_db_map:
+                                    return tipo_paradas_db_map[raw_m]
+                                    
+                                # 2. Mapeamento histórico da aba 'BASE PARADAS' (DB.xlsx)
+                                if raw_m in mapa_paradas:
+                                    return mapa_paradas[raw_m]["TIPO"]
+                                    
+                                # Fallback inteligente
+                                raw_m_upper = raw_m.upper()
+                                if "ALMOÇO" in raw_m_upper or "REFEIÇÃO" in raw_m_upper:
+                                    return "Intervenção"
+                                elif "MANUTENÇÃO" in raw_m_upper or "QUEBRA" in raw_m_upper or "MECÂNICA" in raw_m_upper or "MECANICA" in raw_m_upper or "ELÉTRICA" in raw_m_upper or "ELETRICA" in raw_m_upper:
+                                    return "Crítica"
+                                    
+                                t_min = float(row.get("TEMPO", 0))
+                                if t_min < 15:
+                                    return "Operacional"
+                                elif t_min <= 60:
+                                    return "Intervenção"
+                                else:
+                                    return "Crítica"
+                                    
+                            df_paradas_filtrado["MOTIVO_ORIGINAL"] = df_paradas_filtrado["MOTIVO"]
+                            df_paradas_filtrado["MOTIVO"] = df_paradas_filtrado.apply(map_motivo_padrao, axis=1)
+                            df_paradas_filtrado["TIPO_PARADA"] = df_paradas_filtrado.apply(map_tipo_parada, axis=1)
+
                             # 3. Métricas Rápidas
                             tempo_tot_min = df_paradas_filtrado["TEMPO"].sum()
                             
@@ -2622,6 +2711,55 @@ with tab_analises:
                                         </td>
                                     </tr>"""
                                     
+                                # F4. LEAN SEVERIDADE BREAKDOWN (Farol Lean: Operacional, Intervenção, Crítica)
+                                lean_severity_cards_html = ""
+                                if not df_paradas_filtrado.empty:
+                                    total_tempo = df_paradas_filtrado["TEMPO"].sum()
+                                    
+                                    # Operacionais (Farol Verde)
+                                    df_micro = df_paradas_filtrado[df_paradas_filtrado["TIPO_PARADA"] == "Operacional"]
+                                    micro_cnt = len(df_micro)
+                                    micro_sum = df_micro["TEMPO"].sum()
+                                    micro_pct = (micro_sum / total_tempo * 100) if total_tempo > 0 else 0
+                                    
+                                    # Intervenções (Farol Amarelo)
+                                    df_media = df_paradas_filtrado[df_paradas_filtrado["TIPO_PARADA"] == "Intervenção"]
+                                    media_cnt = len(df_media)
+                                    media_sum = df_media["TEMPO"].sum()
+                                    media_pct = (media_sum / total_tempo * 100) if total_tempo > 0 else 0
+                                    
+                                    # Críticas (Farol Vermelho)
+                                    df_longa = df_paradas_filtrado[df_paradas_filtrado["TIPO_PARADA"] == "Crítica"]
+                                    longa_cnt = len(df_longa)
+                                    longa_sum = df_longa["TEMPO"].sum()
+                                    longa_pct = (longa_sum / total_tempo * 100) if total_tempo > 0 else 0
+                                    
+                                    severity_data = [
+                                        {"title": "Operacionais", "cnt": micro_cnt, "time": micro_sum, "pct": micro_pct, "color": "#10b981", "bg": "#f0fdf4", "border": "#dcfce7", "tag": "Farol Verde"},
+                                        {"title": "Intervenções", "cnt": media_cnt, "time": media_sum, "pct": media_pct, "color": "#f59e0b", "bg": "#fffbeb", "border": "#fef3c7", "tag": "Farol Amarelo"},
+                                        {"title": "Críticas", "cnt": longa_cnt, "time": longa_sum, "pct": longa_pct, "color": "#ef4444", "bg": "#fef2f2", "border": "#fee2e2", "tag": "Farol Vermelho"}
+                                    ]
+                                    
+                                    for card in severity_data:
+                                        dur_str = format_to_hhmm(card["time"])
+                                        lean_severity_cards_html += f"""
+                                        <div style="border: 1px solid {card['border']}; background: {card['bg']}; padding: 3px 5px; border-radius: 6px; text-align: center;">
+                                            <div style="font-size: 8px; font-weight: 700; color: #475569; text-transform: uppercase;">{card['title']}</div>
+                                            <div style="font-size: 11px; font-weight: 700; color: {card['color']}; margin: 1px 0;">{card['cnt']} ocor.</div>
+                                            <div style="font-size: 8px; font-weight: 600; color: #334155;">{dur_str} total</div>
+                                            <div style="width: 100%; margin-top: 2px;">
+                                                <div style="display:flex; justify-content:space-between; font-size:7px; color:#64748b; margin-bottom:1px;">
+                                                    <span style="font-weight:700; color:{card['color']};">{card['pct']:.1f}%</span>
+                                                    <span style="font-style:italic;">{card['tag']}</span>
+                                                </div>
+                                                <div class="progress-container" style="height: 2px; background: #e2e8f0; border-radius: 2px; overflow: hidden; margin-top: 1px;">
+                                                    <div class="progress-bar" style="width: {card['pct']:.1f}%; height: 100%; background: {card['color']};"></div>
+                                                </div>
+                                            </div>
+                                        </div>"""
+                                else:
+                                    lean_severity_cards_html = "<div style='grid-column: span 3; text-align:center; color:#64748b; font-size:9px;'>Sem dados de paradas</div>"
+
                                 # E. OCORRÊNCIAS MAIS CRÍTICAS (Top 5 para layout compacto)
                                 ocorrencias_rows_html = ""
                                 df_top_5 = df_paradas_filtrado.sort_values("TEMPO", ascending=False).head(5)
@@ -2632,21 +2770,7 @@ with tab_analises:
                                     if pd.notna(r.get("DATA_INICIO")):
                                         try:
                                             dt_str = pd.to_datetime(r["DATA_INICIO"]).strftime("%d/%m/%Y")
-                                        except:
-                                            dt_str = str(r["DATA_INICIO"])
-                                            
-                                    ocorrencias_rows_html += f"""
-                                    <tr>
-                                        <td style='text-align:center;'>{int(r['ID_APONTAMENTO']) if pd.notna(r['ID_APONTAMENTO']) else '-'}</td>
-                                        <td style="font-weight:600; color:#334155;">{r[c_st]}</td>
-                                        <td>{r['MOTIVO']}</td>
-                                        <td style='text-align:center;'>{dt_str}</td>
-                                        <td style='text-align:center;'>{r['HORA_INICIO']} a {r['HORA_FIM']}</td>
-                                        <td style="font-weight:700; color:#EF553B; text-align:center;">{duration_str}</td>
-                                        <td style="font-weight:700; color:#1e3a8a; text-align:right;">{prej_fmt}</td>
-                                    </tr>"""
-                                    
-                                html_a3 = f"""
+                                                        html_a3 = f"""
                                 <!DOCTYPE html>
                                 <html>
                                 <head>
@@ -2660,12 +2784,12 @@ with tab_analises:
                                             background: #f8fafc;
                                             color: #1e293b;
                                             margin: 0;
-                                            padding: 10px;
+                                            padding: 4px;
                                         }}
                                         
                                         .no-print {{
                                             text-align: right;
-                                            margin-bottom: 12px;
+                                            margin-bottom: 8px;
                                             max-width: 1540px;
                                             margin-left: auto;
                                             margin-right: auto;
@@ -2674,12 +2798,12 @@ with tab_analises:
                                         .btn-print-a3 {{
                                             background: #1e3a8a;
                                             color: white;
-                                            padding: 8px 20px;
+                                            padding: 6px 16px;
                                             border: none;
                                             border-radius: 6px;
                                             cursor: pointer;
                                             font-weight: 600;
-                                            font-size: 13px;
+                                            font-size: 12px;
                                             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
                                             transition: background 0.2s;
                                         }}
@@ -2695,15 +2819,15 @@ with tab_analises:
                                             margin: 0 auto;
                                             border: 1px solid #cbd5e1;
                                             border-radius: 8px;
-                                            padding: 16px 20px;
+                                            padding: 8px 12px;
                                             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
                                             box-sizing: border-box;
                                         }}
                                         
                                         .header-a3 {{
-                                            border-bottom: 3px solid #1e3a8a;
-                                            padding-bottom: 8px;
-                                            margin-bottom: 12px;
+                                            border-bottom: 2px solid #1e3a8a;
+                                            padding-bottom: 4px;
+                                            margin-bottom: 6px;
                                             display: flex;
                                             justify-content: space-between;
                                             align-items: flex-end;
@@ -2711,15 +2835,15 @@ with tab_analises:
                                         
                                         .header-a3 h1 {{
                                             margin: 0;
-                                            font-size: 20px;
+                                            font-size: 16px;
                                             color: #1e3a8a;
                                             font-weight: 700;
                                             letter-spacing: -0.5px;
                                         }}
                                         
                                         .header-a3 .subtitle {{
-                                            margin: 3px 0 0 0;
-                                            font-size: 10px;
+                                            margin: 2px 0 0 0;
+                                            font-size: 8.5px;
                                             color: #64748b;
                                             text-transform: uppercase;
                                             font-weight: 600;
@@ -2729,13 +2853,13 @@ with tab_analises:
                                         .meta-grid {{
                                             display: grid;
                                             grid-template-columns: repeat(4, 1fr);
-                                            gap: 10px;
+                                            gap: 6px;
                                             background: #f8fafc;
                                             border: 1px solid #e2e8f0;
-                                            padding: 8px 12px;
+                                            padding: 4px 8px;
                                             border-radius: 6px;
-                                            margin-top: 6px;
-                                            font-size: 10px;
+                                            margin-top: 3px;
+                                            font-size: 8.5px;
                                         }}
                                         
                                         .meta-item b {{
@@ -2745,25 +2869,25 @@ with tab_analises:
                                         .a3-columns {{
                                             display: grid;
                                             grid-template-columns: 1.12fr 1fr;
-                                            gap: 16px;
-                                            margin-bottom: 12px;
+                                            gap: 10px;
+                                            margin-bottom: 6px;
                                         }}
                                         
                                         .column-section {{
                                             border: 1px solid #cbd5e1;
                                             border-radius: 6px;
-                                            padding: 12px;
+                                            padding: 8px;
                                             background: #ffffff;
                                         }}
                                         
                                         .section-title {{
-                                            font-size: 11px;
+                                            font-size: 10px;
                                             font-weight: 700;
                                             color: #1e3a8a;
                                             border-bottom: 2px solid #f1f5f9;
-                                            padding-bottom: 4px;
+                                            padding-bottom: 2px;
                                             margin-top: 0;
-                                            margin-bottom: 8px;
+                                            margin-bottom: 4px;
                                             text-transform: uppercase;
                                             letter-spacing: 0.5px;
                                         }}
@@ -2771,27 +2895,27 @@ with tab_analises:
                                         .kpi-grid {{
                                             display: grid;
                                             grid-template-columns: repeat(2, 1fr);
-                                            gap: 8px;
-                                            margin-bottom: 8px;
+                                            gap: 4px;
+                                            margin-bottom: 4px;
                                         }}
                                         
                                         .kpi-card {{
                                             border: 1px solid #e2e8f0;
-                                            padding: 6px 8px;
+                                            padding: 4px 6px;
                                             border-radius: 6px;
                                             background: #f8fafc;
                                             text-align: center;
                                         }}
                                         
                                         .kpi-val {{
-                                            font-size: 17px;
+                                            font-size: 13px;
                                             font-weight: 700;
                                             color: #1e3a8a;
                                             margin-top: 2px;
                                         }}
                                         
                                         .kpi-lbl {{
-                                            font-size: 8.5px;
+                                            font-size: 7.5px;
                                             color: #64748b;
                                             text-transform: uppercase;
                                             font-weight: 600;
@@ -2800,20 +2924,20 @@ with tab_analises:
                                         table.a3-table {{
                                             width: 100%;
                                             border-collapse: collapse;
-                                            font-size: 9.5px;
+                                            font-size: 8px;
                                         }}
                                         
                                         table.a3-table th {{
                                             background: #f8fafc;
                                             color: #475569;
                                             font-weight: 700;
-                                            padding: 4px 6px;
+                                            padding: 2px 4px;
                                             border: 1px solid #cbd5e1;
                                             text-align: left;
                                         }}
                                         
                                         table.a3-table td {{
-                                            padding: 3.5px 5px;
+                                            padding: 2px 3px;
                                             border: 1px solid #cbd5e1;
                                             color: #334155;
                                         }}
@@ -2827,7 +2951,7 @@ with tab_analises:
                                             background: #f1f5f9;
                                             border: 1px solid #e2e8f0;
                                             border-radius: 3px;
-                                            height: 5px;
+                                            height: 3px;
                                             overflow: hidden;
                                         }}
                                         
@@ -2839,9 +2963,9 @@ with tab_analises:
                                         .bottom-section {{
                                             border: 1px solid #cbd5e1;
                                             border-radius: 6px;
-                                            padding: 12px;
+                                            padding: 8px;
                                             background: #ffffff;
-                                            margin-bottom: 12px;
+                                            margin-bottom: 0;
                                         }}
                                         
                                         .action-grid {{
@@ -2906,7 +3030,7 @@ with tab_analises:
                                         
                                         @page {{
                                             size: A3 landscape;
-                                            margin: 0.6cm 0.8cm;
+                                            margin: 0.4cm 0.6cm;
                                         }}
                                     </style>
                                 </head>
@@ -2933,17 +3057,17 @@ with tab_analises:
                                             <div class="meta-item"><b>Filtros Ativos:</b> {len(maquinas_parada_sel)} Máqs. / {len(motivos_sel)} Motivos</div>
                                         </div>
                                         
-                                        <div style="height: 12px;"></div>
+                                        <div style="height: 6px;"></div>
                                         
                                         <div class="a3-columns">
                                             <!-- Coluna Esquerda: Produtividade -->
-                                            <div class="column-section" style="display:flex; flex-direction:column; gap:10px;">
-
+                                            <div class="column-section" style="display:flex; flex-direction:column; gap:6px;">
+ 
                                                 <div class="section-title">1. Contexto &amp; Escopo Operacional</div>
-                                                <p style="font-size: 9px; margin: 0; line-height: 1.4; color: #475569; text-align:justify;">
+                                                <p style="font-size: 8px; margin: 0; line-height: 1.25; color: #475569; text-align:justify;">
                                                     Este A3 consolida a performance integrada da fábrica. O período cobriu <strong>{num_dias_ativos} dia(s) ativo(s)</strong> de produção, com produtividade média de <strong>{media_diaria_ch:,.0f} chapas/dia</strong> e <strong>{media_diaria_m2:,.1f} m²/dia</strong>. Os dados discriminam produção normal e refeita por máquina e turno, correlacionando com o índice de qualidade (% rejeito).
                                                 </p>
-
+ 
                                                 <div class="section-title">2. KPIs Globais de Produtividade</div>
                                                 <div class="kpi-grid">
                                                     <div class="kpi-card" style="border-color:#dcfce7; background:#f0fdf4;">
@@ -2963,11 +3087,11 @@ with tab_analises:
                                                     </div>
                                                     <div class="kpi-card">
                                                         <div class="kpi-lbl">Índice Global Refeito</div>
-                                                        <div class="kpi-val" style="font-size:14px; padding-top:2px; color:{'#ef4444' if idx_refeito_m2 > 5 else '#f59e0b' if idx_refeito_m2 > 2 else '#16a34a'};">{idx_refeito_m2:.1f}%</div>
+                                                        <div class="kpi-val" style="font-size:13px; padding-top:2px; color:{'#ef4444' if idx_refeito_m2 > 5 else '#f59e0b' if idx_refeito_m2 > 2 else '#16a34a'};">{idx_refeito_m2:.1f}%</div>
                                                         <div style="font-size:8px; color:#64748b; margin-top:2px;">em M² processados</div>
                                                     </div>
                                                 </div>
-
+ 
                                                 <div class="section-title">3. Matriz de Produtividade por Máquina e Turno</div>
                                                 <table class="a3-table">
                                                     <thead>
@@ -2982,7 +3106,7 @@ with tab_analises:
                                                     </thead>
                                                     <tbody>{prod_rows_html}</tbody>
                                                 </table>
-
+ 
                                                 <div class="section-title">4. Qualidade por Máquina — Normal vs. Refeito</div>
                                                 <table class="a3-table">
                                                     <thead>
@@ -2997,7 +3121,7 @@ with tab_analises:
                                                     </thead>
                                                     <tbody>{qualidade_rows_html}</tbody>
                                                 </table>
-
+ 
                                                 <div class="section-title">5. Distribuição por Processo Produtivo</div>
                                                 <table class="a3-table">
                                                     <thead>
@@ -3010,11 +3134,11 @@ with tab_analises:
                                                     </thead>
                                                     <tbody>{processos_rows_html}</tbody>
                                                 </table>
-
+ 
                                             </div>
                                             
                                             <!-- Coluna Direita: Paradas & Inatividade -->
-                                            <div class="column-section" style="display:flex; flex-direction:column; justify-content:space-between; gap:12px;">
+                                            <div class="column-section" style="display:flex; flex-direction:column; justify-content:space-between; gap:6px;">
                                                 <div>
                                                     <div class="section-title">6. KPIs de Paradas &amp; Ociosidade</div>
                                                     <div class="kpi-grid">
@@ -3028,11 +3152,11 @@ with tab_analises:
                                                         </div>
                                                         <div class="kpi-card">
                                                             <div class="kpi-lbl">Principal Causa</div>
-                                                            <div class="kpi-val" style="font-size:10px; padding-top:4px;">{str(motivo_top).upper()}</div>
+                                                            <div class="kpi-val" style="font-size:9px; padding-top:4px;">{str(motivo_top).upper()}</div>
                                                         </div>
                                                         <div class="kpi-card">
                                                             <div class="kpi-lbl">Máquina Mais Ociosa</div>
-                                                            <div class="kpi-val" style="font-size:12px; padding-top:4px;">{str(setor_top).upper()}</div>
+                                                            <div class="kpi-val" style="font-size:10px; padding-top:4px;">{str(setor_top).upper()}</div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -3071,13 +3195,20 @@ with tab_analises:
                                                         </tbody>
                                                     </table>
                                                 </div>
+                                                
+                                                <div>
+                                                    <div class="section-title">9. Análise Lean: Severidade e Frequência das Paradas</div>
+                                                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 2px;">
+                                                        {lean_severity_cards_html}
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                         
                                         <!-- Seção Inferior: Ocorrências Críticas (Top 5) -->
-                                        <div class="bottom-section" style="margin-bottom:12px; padding: 10px 14px;">
-                                            <div class="section-title" style="margin-bottom:6px;">9. Ocorrências Mais Críticas de Paradas (Top 5 por Duração)</div>
-                                            <table class="a3-table" style="font-size: 9px;">
+                                        <div class="bottom-section" style="margin-bottom:0; padding: 6px 10px;">
+                                            <div class="section-title" style="margin-bottom:4px;">10. Ocorrências Mais Críticas de Paradas (Top 5 por Duração)</div>
+                                            <table class="a3-table" style="font-size: 8px;">
                                                 <thead>
                                                     <tr>
                                                         <th style='text-align:center; width:60px;'>ID Apont.</th>
@@ -3093,44 +3224,6 @@ with tab_analises:
                                                     {ocorrencias_rows_html}
                                                 </tbody>
                                             </table>
-                                        </div>
-                                        
-                                        <!-- Seção de Plano de Ação e Assinaturas -->
-                                        <div class="bottom-section" style="padding: 10px 14px; margin-bottom: 0;">
-                                            <div class="section-title" style="margin-bottom:6px;">10. Plano de Ação Lean &amp; Contramedidas Estabelecidas</div>
-                                            <div class="action-grid">
-                                                <div class="action-cell">
-                                                    <b style="color:#1e3a8a; font-size:8px;">1. ANÁLISE CAUSA RAIZ (5 PORQUÊS):</b><br>
-                                                    Investigar causa-raiz da parada dominante "{motivo_top}" que gerou {c_motivos_totais.iloc[0]['TEMPO_HHMM'] if not c_motivos_totais.empty else '00:00'} de ociosidade na máquina mais afetada ({setor_top}).
-                                                </div>
-                                                <div class="action-cell">
-                                                    <b style="color:#1e3a8a; font-size:8px;">2. EFICIÊNCIA &amp; PRODUTIVIDADE:</b><br>
-                                                    Analisar os processos com índices elevados de repasse/refeito para implementar padronização operacional (SOP) e reduzir refugo de Chapas.
-                                                </div>
-                                                <div class="action-cell">
-                                                    <b style="color:#1e3a8a; font-size:8px;">3. CRONOGRAMA DE MANUTENÇÃO:</b><br>
-                                                    Executar plano preventivo focado nos gargalos identificados para mitigar as paradas mais críticas e proteger a margem financeira de R$ {prejuizo_estimado:,.2f}.
-                                                </div>
-                                                <div class="action-cell">
-                                                    <b style="color:#1e3a8a; font-size:8px;">4. MONITORAMENTO &amp; REUNIÕES DIÁRIAS (GEMBA):</b><br>
-                                                    Revisar os indicadores de produção (D/N) e paradas na reunião diária de 10 min com as equipes de turno, garantindo o atingimento das metas do PCP.
-                                                </div>
-                                            </div>
-                                            
-                                            <div class="signatures">
-                                                <div class="sig-line">
-                                                    <div class="line"></div>
-                                                    <b>PCP / Planejamento e Controle</b>
-                                                </div>
-                                                <div class="sig-line">
-                                                    <div class="line"></div>
-                                                    <b>Gestor de Produção / Fábrica</b>
-                                                </div>
-                                                <div class="sig-line">
-                                                    <div class="line"></div>
-                                                    <b>Diretoria Operacional</b>
-                                                </div>
-                                            </div>
                                         </div>
                                     </div>
                                 </body>

@@ -527,6 +527,98 @@ def update_tipo_setores(df_novo):
         return False
 
 
+def get_tipo_paradas():
+    """Lê a aba de Tipo de Paradas (TIPO_PARADAS) do arquivo de programação. Se a aba não existir, inicializa com os padrões."""
+    try:
+        db_file = _get_db_file()
+        sheet_name = get_config().get("SHEET_TIPO_PARADAS", "TIPO_PARADAS")
+        
+        try:
+            df = pd.read_excel(db_file, sheet_name=sheet_name, engine="openpyxl")
+            return df
+        except ValueError:
+            # Aba não encontrada! Vamos inicializar e salvar os padrões
+            default_data = [
+                {"MOTIVO": "ALMOÇO", "TIPO_PARADA": "Intervenção"},
+                {"MOTIVO": "MANUTENÇÃO PREVENTIVA", "TIPO_PARADA": "Intervenção"},
+                {"MOTIVO": "MANUTENÇÃO CORRETIVA", "TIPO_PARADA": "Crítica"},
+                {"MOTIVO": "FALTA DE MATERIAL", "TIPO_PARADA": "Operacional"},
+                {"MOTIVO": "ABASTECIMENTO CICLO", "TIPO_PARADA": "Operacional"},
+                {"MOTIVO": "LIMPEZA / AJUSTE", "TIPO_PARADA": "Operacional"},
+                {"MOTIVO": "TROCA DE ABRASIVOS", "TIPO_PARADA": "Operacional"},
+                {"MOTIVO": "AJUSTE OPERACIONAL", "TIPO_PARADA": "Operacional"},
+                {"MOTIVO": "OUTRAS CAUSAS", "TIPO_PARADA": "Operacional"}
+            ]
+            df_default = pd.DataFrame(default_data)
+            
+            # Cria a aba no arquivo Excel
+            wb = openpyxl.load_workbook(db_file, keep_vba=True)
+            if sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+            else:
+                ws = wb.create_sheet(sheet_name)
+                
+            # Escreve cabeçalhos
+            ws.cell(row=1, column=1, value="MOTIVO")
+            ws.cell(row=1, column=2, value="TIPO_PARADA")
+            
+            # Escreve dados
+            for r_idx, row in enumerate(default_data, start=2):
+                ws.cell(row=r_idx, column=1, value=row["MOTIVO"])
+                ws.cell(row=r_idx, column=2, value=row["TIPO_PARADA"])
+                
+            wb.save(db_file)
+            return df_default
+            
+    except Exception as e:
+        print(f"Erro ao carregar ou inicializar tipo paradas: {e}")
+        default_data = [
+            {"MOTIVO": "ALMOÇO", "TIPO_PARADA": "Intervenção"},
+            {"MOTIVO": "MANUTENÇÃO PREVENTIVA", "TIPO_PARADA": "Intervenção"},
+            {"MOTIVO": "MANUTENÇÃO CORRETIVA", "TIPO_PARADA": "Crítica"},
+            {"MOTIVO": "FALTA DE MATERIAL", "TIPO_PARADA": "Operacional"},
+            {"MOTIVO": "ABASTECIMENTO CICLO", "TIPO_PARADA": "Operacional"}
+        ]
+        return pd.DataFrame(default_data)
+
+
+def update_tipo_paradas(df_novo):
+    """Sobrescreve as colunas MOTIVO e TIPO_PARADA na aba de Tipo de Paradas do Excel."""
+    try:
+        db_file = _get_db_file()
+        sheet_name = get_config().get("SHEET_TIPO_PARADAS", "TIPO_PARADAS")
+        
+        wb = openpyxl.load_workbook(db_file, keep_vba=True)
+        if sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+        else:
+            ws = wb.create_sheet(sheet_name)
+            
+        # Garante que as colunas corretas estão limpas
+        ws.cell(row=1, column=1, value="MOTIVO")
+        ws.cell(row=1, column=2, value="TIPO_PARADA")
+        
+        # Limpa o conteúdo antigo
+        max_row = ws.max_row
+        for r in range(2, max_row + 1):
+            ws.cell(row=r, column=1).value = None
+            ws.cell(row=r, column=2).value = None
+            
+        # Escreve o novo conteúdo
+        for idx, row in df_novo.iterrows():
+            motivo_val = str(row.get("MOTIVO", "")).strip()
+            tipo_val = str(row.get("TIPO_PARADA", "")).strip()
+            if motivo_val and motivo_val != "nan":
+                ws.cell(row=idx + 2, column=1, value=motivo_val)
+                ws.cell(row=idx + 2, column=2, value=tipo_val if tipo_val != "nan" else "")
+                
+        wb.save(db_file)
+        return True
+    except Exception as e:
+        print(f"Erro ao salvar tipo paradas: {e}")
+        return False
+
+
 def salvar_edicao_bloco_excel(bloco_id, material, demanda, qtd_chapas, vol_m2, roteiro_atual):
     """
     Sincroniza as edições de um bloco existente diretamente no Excel.
@@ -615,6 +707,47 @@ def get_mapa_resumido_processos():
         return mapa
     except Exception as e:
         print(f"Erro ao ler BASE DADOS do Apontamento: {e}")
+        return {}
+
+
+def get_mapeamento_paradas():
+    """
+    Lê a aba de mapeamento de paradas do arquivo de Apontamento e retorna um dicionário
+    mapeando o motivo completo para o motivo resumido e o tipo de parada (farol).
+    Aba esperada no config.json -> SHEET_AP_BASE_PARADAS (default 'BASE PARADAS').
+    Colunas: MOTIVO_COMPLETO (1ª col), RESUMIDO (2ª col), TIPO_PARADA (3ª col).
+    """
+    try:
+        file_path = _get_apontamento_file()
+        sheet_name = get_config().get("SHEET_AP_BASE_PARADAS", "BASE PARADAS")
+        
+        # Lê a planilha de mapeamento de paradas
+        df = pd.read_excel(file_path, sheet_name=sheet_name, engine="openpyxl")
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        
+        col_completo = next((c for c in ["MOTIVO_COMPLETO", "MOTIVO", "DESCRICAO"] if c in df.columns), df.columns[0])
+        col_resumido = next((c for c in ["RESUMIDO", "MOTIVO_PADRONIZADO", "PADRONIZADO"] if c in df.columns), df.columns[1] if len(df.columns) > 1 else col_completo)
+        col_tipo = next((c for c in ["TIPO_PARADA", "TIPO", "GRUPO", "FAROL"] if c in df.columns), df.columns[2] if len(df.columns) > 2 else None)
+        
+        df_clean = df.dropna(subset=[col_completo]).copy()
+        
+        mapa = {}
+        for _, row in df_clean.iterrows():
+            mot_comp = str(row[col_completo]).strip().upper()
+            mot_res = str(row[col_resumido]).strip().upper() if pd.notna(row[col_resumido]) else mot_comp
+            tipo_val = str(row[col_tipo]).strip() if col_tipo and pd.notna(row[col_tipo]) else "Operacional"
+            
+            tipo_norm = "Operacional"
+            t_upper = tipo_val.upper()
+            if "INTER" in t_upper or "INT" in t_upper or "AMAR" in t_upper:
+                tipo_norm = "Intervenção"
+            elif "CRIT" in t_upper or "CRI" in t_upper or "VERM" in t_upper:
+                tipo_norm = "Crítica"
+                
+            mapa[mot_comp] = {"RESUMIDO": mot_res, "TIPO": tipo_norm}
+        return mapa
+    except Exception as e:
+        print(f"Erro ao carregar mapeamento de paradas: {e}")
         return {}
 
 
