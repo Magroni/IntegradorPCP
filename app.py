@@ -1967,7 +1967,7 @@ with tab_analises:
             df_board_gr["_label"] = df_board_gr[col_valor].apply(lambda v: f"{v:{fmt}}" if v > 0 else "")
             
             bars = alt.Chart(df_board_gr).mark_bar().encode(
-                x=alt.X('MAQ_TURNO:N', title=None, sort=None),
+                x=alt.X('MAQ_TURNO:N', title=None, sort='ascending'),
                 y=alt.Y(f'{col_valor}:Q', title=metrica_board, stack='zero'),
                 color=alt.Color('TIPO_PROD:N', title='Tipo', scale=alt.Scale(domain=['Normal', 'Refeito'], range=['#00CC96', '#EF553B'])),
                 order=alt.Order('_sort:Q')
@@ -1977,7 +1977,7 @@ with tab_analises:
             text_seg = alt.Chart(df_board_gr).mark_text(
                 align='center', baseline='middle', color='white', fontSize=15, fontWeight='bold', stroke='black', strokeWidth=0.5
             ).encode(
-                x=alt.X('MAQ_TURNO:N', sort=None),
+                x=alt.X('MAQ_TURNO:N', sort='ascending'),
                 y=alt.Y('_mid:Q'),
                 text=alt.Text('_label:N')
             )
@@ -1985,7 +1985,7 @@ with tab_analises:
             # Totais no topo
             text_totals = alt.Chart(df_board_gr).mark_text(
                 align='center', baseline='bottom', dy=-5, fontSize=18, fontWeight='bold', color='white', stroke='black', strokeWidth=0.6
-            ).encode(x=alt.X('MAQ_TURNO:N', sort=None), y=alt.Y(f'sum({col_valor}):Q'), text=alt.Text(f'sum({col_valor}):Q', format=fmt))
+            ).encode(x=alt.X('MAQ_TURNO:N', sort='ascending'), y=alt.Y(f'sum({col_valor}):Q'), text=alt.Text(f'sum({col_valor}):Q', format=fmt))
             
             chart_layered = (bars + text_seg + text_totals).properties(width=alt.Step(100), height=450)
             
