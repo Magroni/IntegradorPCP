@@ -1179,13 +1179,28 @@ with tab_apontamento:
                             df_tp_op = dm.get_tipo_paradas()
                             lista_motivos_ap = sorted(list(df_tp_op["MOTIVO"].dropna().unique())) if not df_tp_op.empty else []
                             
-                            if "df_paradas_state" not in st.session_state:
-                                d_ontem = datetime.now() - timedelta(days=1)
-                                st.session_state["df_paradas_state"] = pd.DataFrame([{"MOTIVO": "", "DIA_INI": d_ontem, "HORA_INI": "", "DIA_FIM": d_ontem, "HORA_FIM": ""}])
+                            # Sincroniza a data das paradas com a data do processo
+                            if "df_paradas_state" not in st.session_state or st.session_state.get("last_f_dia_ini") != f_dia_ini or st.session_state.get("last_f_dia_fim") != f_dia_fim:
+                                st.session_state["last_f_dia_ini"] = f_dia_ini
+                                st.session_state["last_f_dia_fim"] = f_dia_fim
+                                is_empty_or_default = True
+                                if "df_paradas_state" in st.session_state:
+                                    df_p = st.session_state["df_paradas_state"]
+                                    if not df_p.empty and (len(df_p) > 1 or df_p.iloc[0]["MOTIVO"] != ""):
+                                        is_empty_or_default = False
+                                
+                                if is_empty_or_default:
+                                    st.session_state["df_paradas_state"] = pd.DataFrame([{"MOTIVO": "", "DIA_INI": f_dia_ini, "HORA_INI": "", "DIA_FIM": f_dia_fim, "HORA_FIM": ""}])
+                                else:
+                                    df_p = st.session_state["df_paradas_state"]
+                                    if df_p.iloc[0]["MOTIVO"] == "":
+                                        df_p.at[df_p.index[0], "DIA_INI"] = f_dia_ini
+                                        df_p.at[df_p.index[0], "DIA_FIM"] = f_dia_fim
+                                    st.session_state["df_paradas_state"] = df_p
                             
                             col_conf_paradas = {
-                                "DIA_INI": st.column_config.DateColumn("D.Início", format="DD/MM/YYYY"),
-                                "DIA_FIM": st.column_config.DateColumn("D.Fim", format="DD/MM/YYYY"),
+                                "DIA_INI": st.column_config.DateColumn("D.Início", format="DD/MM/YYYY", default=f_dia_ini),
+                                "DIA_FIM": st.column_config.DateColumn("D.Fim", format="DD/MM/YYYY", default=f_dia_fim),
                                 "HORA_INI": st.column_config.TextColumn("H.Início"),
                                 "HORA_FIM": st.column_config.TextColumn("H.Fim")
                             }
@@ -1297,8 +1312,16 @@ with tab_apontamento:
                                             erro_parada = f"❌ Hora inválida ou incompleta na parada '{p_row['MOTIVO']}'."
                                             break
                                             
-                                        dt_ini_p = datetime.combine(p_row["DIA_INI"], h_ini_p)
-                                        dt_fim_p = datetime.combine(p_row["DIA_FIM"], h_fim_p)
+                                        # Conversão extremamente segura usando parse_dt
+                                        d_ini_p_parsed = parse_dt(p_row["DIA_INI"])
+                                        d_fim_p_parsed = parse_dt(p_row["DIA_FIM"])
+                                        
+                                        if not d_ini_p_parsed or not d_fim_p_parsed:
+                                            erro_parada = f"❌ Data de início ou fim inválida na parada '{p_row['MOTIVO']}'."
+                                            break
+                                            
+                                        dt_ini_p = datetime.combine(d_ini_p_parsed, h_ini_p)
+                                        dt_fim_p = datetime.combine(d_fim_p_parsed, h_fim_p)
                                         mp = (dt_fim_p - dt_ini_p).total_seconds() / 60
                                         
                                         # Validação: Dentro do intervalo do processo?
@@ -1313,9 +1336,9 @@ with tab_apontamento:
                                         total_mp += mp
                                         par_finais.append({
                                             "MOTIVO": p_row["MOTIVO"], 
-                                            "DIA_INICIO": p_row["DIA_INI"].strftime("%d/%m/%Y"), 
+                                            "DIA_INICIO": d_ini_p_parsed.strftime("%d/%m/%Y"), 
                                             "HORA_INICIO": h_ini_p.strftime("%H:%M"), 
-                                            "DIA_FIM": p_row["DIA_FIM"].strftime("%d/%m/%Y"), 
+                                            "DIA_FIM": d_fim_p_parsed.strftime("%d/%m/%Y"), 
                                             "HORA_FIM": h_fim_p.strftime("%H:%M"), 
                                             "TEMPO": f"{int(mp // 60):02d}:{int(mp % 60):02d}"
                                         })
