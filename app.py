@@ -2540,6 +2540,18 @@ with tab_analises:
                                 idx_refeito_m2 = (prod_refeito_m2 / prod_tot_m2 * 100) if prod_tot_m2 > 0 else 0.0
                                 idx_refeito_ch = (prod_refeito_ch / prod_tot_ch * 100) if prod_tot_ch > 0 else 0.0
 
+                                # Estilos saudáveis originais para o cartão de Chapas
+                                ch_border = "#dcfce7"
+                                ch_bg = "#f0fdf4"
+                                ch_color = "#16a34a"
+                                ch_alert_lbl = ""
+
+                                # Estilos saudáveis originais para o cartão de M²
+                                m2_border = "#dcfce7"
+                                m2_bg = "#f0fdf4"
+                                m2_color = "#16a34a"
+                                m2_alert_lbl = ""
+
                                 # B. MATRIZ DE PRODUTIVIDADE POR MÁQUINA & TURNO
                                 prod_rows_html = ""
                                 if not df_an.empty:
@@ -2598,12 +2610,12 @@ with tab_analises:
                                          <td style='text-align:center;'>{tot_m2_d:,.1f} m²</td>
                                          <td style='text-align:center;'>{int(tot_ch_n)} Ch</td>
                                          <td style='text-align:center;'>{tot_m2_n:,.1f} m²</td>
-                                         <td style='text-align:right; color:#1e3a8a;'>{int(prod_tot_ch)} Ch / {prod_tot_m2:,.1f} m²</td>
+                                         <td style='text-align:right; font-weight:700; color:#1e3a8a;'>{int(prod_tot_ch)} Ch / {prod_tot_m2:,.1f} m²</td>
                                     </tr>"""
                                 else:
                                     prod_rows_html = "<tr><td colspan='6' style='text-align:center; color:#64748b;'>Nenhum registro de produção no período</td></tr>"
 
-                                # F1. QUALIDADE POR MÁQUINA: Normal vs. Refeito com % índice de rejeito
+                                # F1. QUALIDADE POR MÁQUINA: Normal vs. Refeito com % índice de refeito
                                 qualidade_rows_html = ""
                                 if not df_an.empty:
                                     df_qual = df_an.groupby(c_st).apply(lambda g: pd.Series({
@@ -2616,23 +2628,39 @@ with tab_analises:
                                     })).reset_index()
                                     df_qual = df_qual.sort_values("m2_total", ascending=False)
                                     for _, rq in df_qual.iterrows():
-                                        idx_rej = (rq["m2_refeito"] / rq["m2_total"] * 100) if rq["m2_total"] > 0 else 0
-                                        bar_color = "#ef4444" if idx_rej > 10 else ("#f59e0b" if idx_rej > 3 else "#22c55e")
+                                        idx_ref = (rq["m2_refeito"] / rq["m2_total"] * 100) if rq["m2_total"] > 0 else 0
+                                        bar_color = "#ef4444" if idx_ref > 10 else ("#f59e0b" if idx_ref > 3 else "#22c55e")
                                         pct_maq = (rq["m2_total"] / prod_tot_m2 * 100) if prod_tot_m2 > 0 else 0
+                                        
+                                        # Identificar se a produção refeita é maior que a produção normal
+                                        refeito_maior = rq["m2_refeito"] > rq["m2_normal"] or rq["ch_refeito"] > rq["ch_normal"]
+                                        
+                                        # Background diferenciado e ícone de alerta se refeito > normal
+                                        row_style = "background-color: #fef2f2 !important;" if refeito_maior else ""
+                                        
+                                        if refeito_maior:
+                                            maq_label = f"🚨 <strong>{rq[c_st]}</strong> <span style='font-size:7.5px; color:#ef4444; font-weight:700; display:block; margin-top:1px;'>(Refeito > Normal)</span>"
+                                        else:
+                                            maq_label = rq[c_st]
+                                        
+                                        # Formatar cores dos valores de reprocesso (só vermelho se > 0)
+                                        color_ch_ref = "color:#ef4444; font-weight:700;" if rq['ch_refeito'] > 0 else "color:#64748b;"
+                                        color_m2_ref = "color:#ef4444; font-weight:700;" if rq['m2_refeito'] > 0 else "color:#64748b;"
+                                        
                                         qualidade_rows_html += f"""
-                                        <tr>
-                                            <td style='font-weight:600; color:#334155;'>{rq[c_st]}</td>
+                                        <tr style='{row_style}'>
+                                            <td style='font-weight:600; color:#334155;'>{maq_label}</td>
                                             <td style='text-align:center;'>{int(rq['ch_normal'])} Ch</td>
-                                            <td style='text-align:center; color:#ef4444;'>{int(rq['ch_refeito'])} Ch</td>
+                                            <td style='text-align:center; {color_ch_ref}'>{int(rq['ch_refeito'])} Ch</td>
                                             <td style='text-align:center;'>{rq['m2_normal']:,.1f} m²</td>
-                                            <td style='text-align:center; color:#ef4444;'>{rq['m2_refeito']:,.1f} m²</td>
+                                            <td style='text-align:center; {color_m2_ref}'>{rq['m2_refeito']:,.1f} m²</td>
                                             <td style='text-align:right;'>
                                                 <div style='display:flex; justify-content:space-between; font-size:8px; color:#64748b; margin-bottom:1px;'>
-                                                    <span style='font-weight:700; color:{bar_color};'>{idx_rej:.1f}%</span>
+                                                    <span style='font-weight:700; color:{bar_color};'>{idx_ref:.1f}%</span>
                                                     <span>{pct_maq:.0f}% vol.</span>
                                                 </div>
                                                 <div class="progress-container">
-                                                    <div class="progress-bar" style="width: {idx_rej:.1f}%; background: {bar_color};"></div>
+                                                    <div class="progress-bar" style="width: {idx_ref:.1f}%; background: {bar_color};"></div>
                                                 </div>
                                             </td>
                                         </tr>"""
@@ -2848,8 +2876,8 @@ with tab_analises:
                                         <td style='text-align:center;'>{dt_str}</td>
                                         <td style='text-align:center;'>{r['HORA_INICIO']} a {r['HORA_FIM']}</td>
                                         <td style="font-weight:700; color:#EF553B; text-align:center;">{duration_str}</td>
-                                        <td style="font-weight:700; color:#1e3a8a; text-align:right;">{prej_fmt}</td>
-                                    </tr>"""
+                                         <td style="font-weight:700; color:#1e3a8a; text-align:right;">{prej_fmt}</td>
+                                     </tr>"""
                                     
                                 html_a3 = f"""
                                 <!DOCTYPE html>
@@ -2865,13 +2893,13 @@ with tab_analises:
                                             background: #f8fafc;
                                             color: #1e293b;
                                             margin: 0;
-                                            padding: 4px;
+                                            padding: 6px;
                                         }}
                                         
                                         .no-print {{
                                             text-align: right;
                                             margin-bottom: 8px;
-                                            max-width: 1120px;
+                                            max-width: 1200px;
                                             margin-left: auto;
                                             margin-right: auto;
                                         }}
@@ -2879,7 +2907,7 @@ with tab_analises:
                                         .btn-print-a3 {{
                                             background: #1e3a8a;
                                             color: white;
-                                            padding: 6px 16px;
+                                            padding: 8px 18px;
                                             border: none;
                                             border-radius: 6px;
                                             cursor: pointer;
@@ -2896,19 +2924,19 @@ with tab_analises:
                                         .a3-card {{
                                             background: #ffffff;
                                             width: 100%;
-                                            max-width: 1100px;
+                                            max-width: 1200px;
                                             margin: 0 auto;
                                             border: 1px solid #cbd5e1;
                                             border-radius: 8px;
-                                            padding: 6px 10px;
+                                            padding: 10px 14px;
                                             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
                                             box-sizing: border-box;
                                         }}
                                         
                                         .header-a3 {{
                                             border-bottom: 2px solid #1e3a8a;
-                                            padding-bottom: 2px;
-                                            margin-bottom: 4px;
+                                            padding-bottom: 3px;
+                                            margin-bottom: 6px;
                                             display: flex;
                                             justify-content: space-between;
                                             align-items: flex-end;
@@ -2916,7 +2944,7 @@ with tab_analises:
                                         
                                         .header-a3 h1 {{
                                             margin: 0;
-                                            font-size: 13.5px;
+                                            font-size: 18px;
                                             color: #1e3a8a;
                                             font-weight: 700;
                                             letter-spacing: -0.5px;
@@ -2924,23 +2952,23 @@ with tab_analises:
                                         
                                         .header-a3 .subtitle {{
                                             margin: 2px 0 0 0;
-                                            font-size: 7.5px;
+                                            font-size: 10px;
                                             color: #64748b;
                                             text-transform: uppercase;
                                             font-weight: 600;
-                                            letter-spacing: 1.5px;
+                                            letter-spacing: 1px;
                                         }}
                                         
                                         .meta-grid {{
                                             display: grid;
                                             grid-template-columns: repeat(4, 1fr);
-                                            gap: 4px;
+                                            gap: 6px;
                                             background: #f8fafc;
                                             border: 1px solid #e2e8f0;
-                                            padding: 2px 6px;
+                                            padding: 4px 8px;
                                             border-radius: 6px;
                                             margin-top: 2px;
-                                            font-size: 7.2px;
+                                            font-size: 9.5px;
                                         }}
                                         
                                         .meta-item b {{
@@ -2949,26 +2977,26 @@ with tab_analises:
                                         
                                         .a3-columns {{
                                             display: grid;
-                                            grid-template-columns: 1.12fr 1fr;
-                                            gap: 6px;
-                                            margin-bottom: 4px;
+                                            grid-template-columns: 1.15fr 1fr;
+                                            gap: 10px;
+                                            margin-bottom: 6px;
                                         }}
                                         
                                         .column-section {{
                                             border: 1px solid #cbd5e1;
                                             border-radius: 6px;
-                                            padding: 4.5px;
+                                            padding: 8px;
                                             background: #ffffff;
                                         }}
                                         
                                         .section-title {{
-                                            font-size: 8px;
+                                            font-size: 11px;
                                             font-weight: 700;
                                             color: #1e3a8a;
-                                            border-bottom: 1px solid #f1f5f9;
-                                            padding-bottom: 1px;
+                                            border-bottom: 1px solid #cbd5e1;
+                                            padding-bottom: 2px;
                                             margin-top: 0;
-                                            margin-bottom: 1.5px;
+                                            margin-bottom: 4px;
                                             text-transform: uppercase;
                                             letter-spacing: 0.5px;
                                         }}
@@ -2976,27 +3004,27 @@ with tab_analises:
                                         .kpi-grid {{
                                             display: grid;
                                             grid-template-columns: repeat(2, 1fr);
-                                            gap: 4px;
-                                            margin-bottom: 4px;
+                                            gap: 6px;
+                                            margin-bottom: 6px;
                                         }}
                                         
                                         .kpi-card {{
                                             border: 1px solid #e2e8f0;
-                                            padding: 3px 5px;
+                                            padding: 5px 8px;
                                             border-radius: 6px;
                                             background: #f8fafc;
                                             text-align: center;
                                         }}
                                         
                                         .kpi-val {{
-                                            font-size: 12px;
+                                            font-size: 15px;
                                             font-weight: 700;
                                             color: #1e3a8a;
                                             margin-top: 2px;
                                         }}
                                         
                                         .kpi-lbl {{
-                                            font-size: 7px;
+                                            font-size: 9px;
                                             color: #64748b;
                                             text-transform: uppercase;
                                             font-weight: 600;
@@ -3005,20 +3033,21 @@ with tab_analises:
                                         table.a3-table {{
                                             width: 100%;
                                             border-collapse: collapse;
-                                            font-size: 7.2px;
+                                            font-size: 9.5px;
+                                            margin-bottom: 4px;
                                         }}
                                         
                                         table.a3-table th {{
                                             background: #f8fafc;
                                             color: #475569;
                                             font-weight: 700;
-                                            padding: 1.5px 3px;
+                                            padding: 3px 5px;
                                             border: 1px solid #cbd5e1;
                                             text-align: left;
                                         }}
                                         
                                         table.a3-table td {{
-                                            padding: 1px 2px;
+                                            padding: 2.5px 4px;
                                             border: 1px solid #cbd5e1;
                                             color: #334155;
                                         }}
@@ -3032,7 +3061,7 @@ with tab_analises:
                                             background: #f1f5f9;
                                             border: 1px solid #e2e8f0;
                                             border-radius: 3px;
-                                            height: 3px;
+                                            height: 4px;
                                             overflow: hidden;
                                         }}
                                         
@@ -3044,16 +3073,9 @@ with tab_analises:
                                         .bottom-section {{
                                             border: 1px solid #cbd5e1;
                                             border-radius: 6px;
-                                            padding: 8px;
+                                            padding: 8px 10px;
                                             background: #ffffff;
                                             margin-bottom: 0;
-                                        }}
-                                        
-                                        .action-grid {{
-                                            display: grid;
-                                            grid-template-columns: repeat(4, 1fr);
-                                            gap: 10px;
-                                            margin-top: 6px;
                                         }}
                                         
                                         .action-cell {{
@@ -3061,7 +3083,7 @@ with tab_analises:
                                             padding: 6px 10px;
                                             border-radius: 4px;
                                             background: #f8fafc;
-                                            font-size: 9px;
+                                            font-size: 10.5px;
                                             color: #475569;
                                             line-height: 1.35;
                                         }}
@@ -3072,25 +3094,25 @@ with tab_analises:
                                             margin-top: 16px;
                                             padding-top: 8px;
                                             border-top: 1px solid #e2e8f0;
-                                            font-size: 9.5px;
+                                            font-size: 11px;
                                         }}
                                         
                                         .sig-line {{
                                             text-align: center;
-                                            width: 230px;
+                                            width: 260px;
                                         }}
                                         
                                         .sig-line .line {{
                                             border-top: 1px solid #475569;
-                                            margin-top: 24px;
+                                            margin-top: 30px;
                                             margin-bottom: 4px;
                                         }}
                                         
                                         @media print {{
                                             body {{
                                                 background: #ffffff;
-                                                padding: 0;
-                                                margin: 0;
+                                                padding: 0 !important;
+                                                margin: 0 !important;
                                             }}
                                             .no-print {{
                                                 display: none !important;
@@ -3103,7 +3125,7 @@ with tab_analises:
                                                 max-width: 100% !important;
                                                 height: 100% !important;
                                                 page-break-inside: avoid !important;
-                                                zoom: 90%; /* Escala nativa forcada no PDF a 100% */
+                                                zoom: 100% !important;
                                             }}
                                             tr {{
                                                 page-break-inside: avoid !important;
@@ -3111,8 +3133,8 @@ with tab_analises:
                                         }}
                                         
                                         @page {{
-                                            size: A4 landscape;
-                                            margin: 0.4cm 0.6cm;
+                                            
+                                            margin: 0.8cm 1cm;
                                         }}
                                         
                                         /* Modo Alto Contraste (Preto e Branco) */
@@ -3205,7 +3227,7 @@ with tab_analises:
                                 </head>
                                 <body class="{body_class}">
                                     <div class="no-print">
-                                        <button class="btn-print-a3" onclick="window.print()">🖨️ Imprimir / Salvar PDF (A4 / A3)</button>
+                                        <button class="btn-print-a3" onclick="window.print()">🖨️ Imprimir / Salvar PDF (A3 / A4)</button>
                                     </div>
                                     
                                     <div class="a3-card">
@@ -3233,31 +3255,31 @@ with tab_analises:
                                             <div class="column-section" style="display:flex; flex-direction:column; gap:6px;">
  
                                                 <div class="section-title">1. Contexto &amp; Escopo Operacional</div>
-                                                <p style="font-size: 8px; margin: 0; line-height: 1.25; color: #475569; text-align:justify;">
-                                                    Este A3 consolida a performance integrada da fábrica. O período cobriu <strong>{num_dias_ativos} dia(s) ativo(s)</strong> de produção, com produtividade média de <strong>{media_diaria_ch:,.0f} chapas/dia</strong> e <strong>{media_diaria_m2:,.1f} m²/dia</strong>. Os dados discriminam produção normal e refeita por máquina e turno, correlacionando com o índice de qualidade (% rejeito).
+                                                <p style="font-size: 9.5px; margin: 0 0 2px 0; line-height: 1.35; color: #475569; text-align:justify;">
+                                                    Este A3 consolida a performance integrada da fábrica. O período cobriu <strong>{num_dias_ativos} dia(s) ativo(s)</strong> de produção, com produtividade média de <strong>{media_diaria_ch:,.0f} chapas/dia</strong> e <strong>{media_diaria_m2:,.1f} m²/dia</strong>. Os dados discriminam produção normal e refeita por máquina e turno, correlacionando com o índice de qualidade (% refeito).
                                                 </p>
  
                                                 <div class="section-title">2. KPIs Globais de Produtividade</div>
                                                 <div class="kpi-grid">
-                                                    <div class="kpi-card" style="border-color:#dcfce7; background:#f0fdf4;">
-                                                        <div class="kpi-lbl" style="color:#16a34a;">Total Chapas</div>
-                                                        <div class="kpi-val" style="color:#16a34a;">{int(prod_tot_ch)}</div>
-                                                        <div style="font-size:8px; color:#64748b; margin-top:2px;">Normal: {int(prod_normal_ch)} | Refeito: {int(prod_refeito_ch)}</div>
+                                                    <div class="kpi-card" style="border-color:{ch_border}; background:{ch_bg};">
+                                                        <div class="kpi-lbl" style="color:{ch_color}; font-weight: 700;">Total Chapas{ch_alert_lbl}</div>
+                                                        <div class="kpi-val" style="color:{ch_color}; font-size: 16px;">{int(prod_tot_ch)}</div>
+                                                        <div style="font-size:9px; color:#64748b; margin-top:2px;">Normal: {int(prod_normal_ch)} | Refeito: {int(prod_refeito_ch)}</div>
                                                     </div>
-                                                    <div class="kpi-card" style="border-color:#dcfce7; background:#f0fdf4;">
-                                                        <div class="kpi-lbl" style="color:#16a34a;">Total M²</div>
-                                                        <div class="kpi-val" style="color:#16a34a;">{prod_tot_m2:,.1f}</div>
-                                                        <div style="font-size:8px; color:#64748b; margin-top:2px;">Normal: {prod_normal_m2:,.1f} | Ref: {prod_refeito_m2:,.1f}</div>
+                                                    <div class="kpi-card" style="border-color:{m2_border}; background:{m2_bg};">
+                                                        <div class="kpi-lbl" style="color:{m2_color}; font-weight: 700;">Total M²{m2_alert_lbl}</div>
+                                                        <div class="kpi-val" style="color:{m2_color}; font-size: 16px;">{prod_tot_m2:,.1f}</div>
+                                                        <div style="font-size:9px; color:#64748b; margin-top:2px;">Normal: {prod_normal_m2:,.1f} | Ref: {prod_refeito_m2:,.1f}</div>
                                                     </div>
                                                     <div class="kpi-card">
                                                         <div class="kpi-lbl">Média Diária</div>
-                                                        <div class="kpi-val" style="font-size:13px; padding-top:3px;">{media_diaria_ch:,.0f} Ch</div>
-                                                        <div style="font-size:8px; color:#64748b; margin-top:2px;">{media_diaria_m2:,.1f} m²/dia — {num_dias_ativos} dias</div>
+                                                        <div class="kpi-val" style="font-size:14px; padding-top:3px;">{media_diaria_ch:,.0f} Ch</div>
+                                                        <div style="font-size:9px; color:#64748b; margin-top:2px;">{media_diaria_m2:,.1f} m²/dia — {num_dias_ativos} dias</div>
                                                     </div>
                                                     <div class="kpi-card">
                                                         <div class="kpi-lbl">Índice Global Refeito</div>
-                                                        <div class="kpi-val" style="font-size:13px; padding-top:2px; color:{'#ef4444' if idx_refeito_m2 > 5 else '#f59e0b' if idx_refeito_m2 > 2 else '#16a34a'};">{idx_refeito_m2:.1f}%</div>
-                                                        <div style="font-size:8px; color:#64748b; margin-top:2px;">em M² processados</div>
+                                                        <div class="kpi-val" style="font-size:14px; padding-top:2px; color:{'#ef4444' if idx_refeito_m2 > 5 else '#f59e0b' if idx_refeito_m2 > 2 else '#16a34a'};">{idx_refeito_m2:.1f}%</div>
+                                                        <div style="font-size:9px; color:#64748b; margin-top:2px;">em M² processados</div>
                                                     </div>
                                                 </div>
  
@@ -3285,7 +3307,7 @@ with tab_analises:
                                                             <th style='text-align:center;'>Refeito (Ch)</th>
                                                             <th style='text-align:center;'>Normal (M²)</th>
                                                             <th style='text-align:center;'>Refeito (M²)</th>
-                                                            <th style='text-align:right;'>% Rejeito / Vol.</th>
+                                                            <th style='text-align:right;'>% Refeito / Vol.</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>{qualidade_rows_html}</tbody>
@@ -3313,19 +3335,19 @@ with tab_analises:
                                                     <div class="kpi-grid">
                                                         <div class="kpi-card" style="border-color:#fee2e2; background:#fef2f2;">
                                                             <div class="kpi-lbl" style="color:#ef4444;">Tempo Total Ocioso</div>
-                                                            <div class="kpi-val" style="color:#ef4444;">{format_to_hhmm(tempo_tot_min)}</div>
+                                                            <div class="kpi-val" style="color:#ef4444; font-size:15px;">{format_to_hhmm(tempo_tot_min)}</div>
                                                         </div>
                                                         <div class="kpi-card" style="border-color:#fee2e2; background:#fef2f2;">
                                                             <div class="kpi-lbl" style="color:#ef4444;">Prejuízo Estimado</div>
-                                                            <div class="kpi-val" style="color:#ef4444;">R$ {prejuizo_estimado:,.2f}</div>
+                                                            <div class="kpi-val" style="color:#ef4444; font-size:15px;">R$ {prejuizo_estimado:,.2f}</div>
                                                         </div>
                                                         <div class="kpi-card">
                                                             <div class="kpi-lbl">Principal Causa</div>
-                                                            <div class="kpi-val" style="font-size:9px; padding-top:4px;">{str(motivo_top).upper()}</div>
+                                                            <div class="kpi-val" style="font-size:11px; padding-top:4px;">{str(motivo_top).upper()}</div>
                                                         </div>
                                                         <div class="kpi-card">
                                                             <div class="kpi-lbl">Máquina Mais Ociosa</div>
-                                                            <div class="kpi-val" style="font-size:10px; padding-top:4px;">{str(setor_top).upper()}</div>
+                                                            <div class="kpi-val" style="font-size:11px; padding-top:4px;">{str(setor_top).upper()}</div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -3367,7 +3389,7 @@ with tab_analises:
                                                 
                                                 <div>
                                                     <div class="section-title">9. Análise Lean: Severidade e Frequência das Paradas</div>
-                                                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 2px;">
+                                                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 2px;">
                                                         {lean_severity_cards_html}
                                                     </div>
                                                 </div>
@@ -3375,9 +3397,9 @@ with tab_analises:
                                         </div>
                                         
                                         <!-- Seção Inferior: Ocorrências Críticas (Top 5) -->
-                                        <div class="bottom-section" style="margin-bottom:0; padding: 4px 6px;">
-                                            <div class="section-title" style="margin-bottom:2px;">10. Ocorrências Mais Críticas de Paradas (Top 5 por Duração)</div>
-                                            <table class="a3-table" style="font-size: 6.8px;">
+                                        <div class="bottom-section" style="margin-bottom:0; padding: 6px 10px;">
+                                            <div class="section-title" style="margin-bottom:4px;">10. Ocorrências Mais Críticas de Paradas (Top 5 por Duração)</div>
+                                            <table class="a3-table" style="font-size: 9px;">
                                                 <thead>
                                                     <tr>
                                                         <th style='text-align:center; width:60px;'>ID Apont.</th>
@@ -3395,11 +3417,12 @@ with tab_analises:
                                             </table>
                                         </div>
                                     </div>
+
                                 </body>
                                 </html>
                                 """
-                                st.components.v1.html(html_a3, height=800, scrolling=True)
-                                st.info("💡 **Dica de Impressão:** Ao clicar no botão acima, a tela de impressão do navegador será aberta. Selecione **Salvar como PDF**, defina o Tamanho do Papel como **A4** (ou **A3** com a opção **Ajustar à página / Fit to page** ativada) e o layout como **Paisagem (Landscape)** para preencher a folha perfeitamente!")
+                                st.components.v1.html(html_a3, height=980, scrolling=True)
+                                st.info("💡 **Dica de Impressão:** Ao clicar no botão acima, a tela de impressão do navegador será aberta diretamente. Selecione a impressora desejada (como **Microsoft Print to PDF** ou **Salvar como PDF**), mude a orientação (Layout) para **Paisagem (Landscape)**, defina o tamanho do papel como **A3** (ou **A4** com a opção **Ajustar à página** ativa) e ajuste a escala para preencher a folha perfeitamente!")
 
                                 
         except Exception as e:
