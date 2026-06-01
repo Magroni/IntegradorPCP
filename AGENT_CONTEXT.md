@@ -1,4 +1,4 @@
-# AGENT_CONTEXT.md — Contexto do Projeto PCP Costa Granitos
+# AGENT_CONTEXT.md — Contexto do Projeto Apontamento & Indicadores Costa Granitos
 > **Atualizado em:** 2026-06-01 (v20)  
 > **Propósito:** Arquivo de contexto para agentes de IA. Leia este arquivo antes de qualquer alteração no projeto.
 
@@ -6,7 +6,7 @@
 
 ## 1. Visão Geral do Sistema
 
-Sistema web de **PCP (Planejamento e Controle da Produção)** para a **Costa Granitos**, uma empresa de beneficiamento de pedras naturais (granito, mármore, quartzito).
+Sistema web de **Gestão de Apontamentos e Indicadores de Produção** para a **Costa Granitos**, uma empresa de beneficiamento de pedras naturais (granito, mármore, quartzito).
 
 - **Stack:** Python + Streamlit (UI web local)
 - **Servidor:** Roda localmente via `run_app.bat`

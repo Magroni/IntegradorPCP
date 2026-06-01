@@ -38,9 +38,9 @@ def format_data_view(d_val):
     if dt: return dt.strftime("%d/%m/%Y")
     return str(d_val)
 
-st.set_page_config(page_title="PCP Costa Granitos", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Apontamento & Indicadores — Costa Granitos", layout="wide", page_icon="📊")
 
-st.title("📊 Gerenciador de Programação WIP")
+st.title("📊 Gestor de Apontamentos & Indicadores de Produção")
 
 # Custom CSS to improve navigation
 st.markdown("""
@@ -661,6 +661,14 @@ with tab_apontamento:
                             if len(t) == 4:
                                 try: return time(int(t[:2]), int(t[2:]))
                                 except: return None
+                            elif len(t) == 3:
+                                try: return time(int(t[:1]), int(t[1:]))
+                                except: return None
+                            elif ":" in str(t_str):
+                                parts = str(t_str).split(":")
+                                if len(parts) == 2:
+                                    try: return time(int(parts[0]), int(parts[1]))
+                                    except: return None
                             return None
 
                         h_ini = parse_time_local(f_hora_ini_str)
