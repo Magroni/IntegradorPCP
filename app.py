@@ -38,9 +38,9 @@ def format_data_view(d_val):
     if dt: return dt.strftime("%d/%m/%Y")
     return str(d_val)
 
-st.set_page_config(page_title="PCP Costa Granitos", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Apontamento & Indicadores — Costa Granitos", layout="wide", page_icon="📊")
 
-st.title("📊 Gerenciador de Programação WIP")
+st.title("📊 Gestor de Apontamentos & Indicadores de Produção")
 
 # Custom CSS to improve navigation
 st.markdown("""
