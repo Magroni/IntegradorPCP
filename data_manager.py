@@ -111,6 +111,50 @@ def blocos_match(bloco_a, bloco_b):
     return bool(parts_a & parts_b)
 
 
+def parse_excel_date(val):
+    """
+    Converte datas do Excel (incluindo números seriais de data como 44693 e strings)
+    de forma extremamente robusta em pandas Timestamp. Retorna pd.NaT em caso de falha.
+    """
+    if pd.isna(val) or str(val).strip() in ["", "nan", "NAT", "NONE", "NULL", "-", "0"]:
+        return pd.NaT
+    if isinstance(val, pd.Timestamp):
+        return val
+    
+    # Se for tipo data/datetime nativo do python
+    from datetime import datetime as dt_class, date as date_class
+    if isinstance(val, dt_class):
+        return pd.Timestamp(val)
+    if isinstance(val, date_class):
+        return pd.Timestamp(val)
+        
+    # Se for numérico (serial do Excel)
+    try:
+        if isinstance(val, (int, float)):
+            return pd.to_datetime(val, unit="D", origin="1899-12-30")
+        # Se for string numérica
+        v_str = str(val).strip()
+        if v_str.replace(".", "", 1).isdigit():
+            return pd.to_datetime(float(v_str), unit="D", origin="1899-12-30")
+    except:
+        pass
+
+    # Se for string formatada
+    d_str = str(val).strip()
+    if "," in d_str:
+        d_str = d_str.split(",")[-1].strip()
+        
+    for fmt in ["%d/%m/%Y", "%Y-%m-%d %H:%M:%S", "%d/%m/%y", "%Y-%m-%d"]:
+        try:
+            return pd.to_datetime(d_str, format=fmt)
+        except:
+            continue
+    try:
+        return pd.to_datetime(d_str)
+    except:
+        return pd.NaT
+
+
 def get_data():
     """Lê a aba de Programação e autocompleta o SETOR se estiver vazio usando a Base de Dados."""
     try:
@@ -787,7 +831,7 @@ def get_apontamentos_do_dia(data_alvo_date):
             return pd.DataFrame()
 
         # Conversão de data e filtro pelo dia
-        df[col_data] = pd.to_datetime(df[col_data], errors="coerce", dayfirst=True)
+        df[col_data] = df[col_data].apply(parse_excel_date)
         df = df.dropna(subset=[col_data])
         df_dia = df[df[col_data].dt.date == data_alvo_date].copy()
 
@@ -1272,7 +1316,20 @@ def get_apontamentos_por_bloco(bloco_id):
                     break
         
         if not res_cols: return pd.DataFrame()
-        return historico[res_cols].sort_values(by=res_cols[0], ascending=False)
+        
+        # Converte e ordena com segurança usando o parse_excel_date robusto
+        col_data_name = res_cols[0]
+        historico[col_data_name] = historico[col_data_name].apply(parse_excel_date)
+        historico_ordenado = historico[res_cols].sort_values(by=col_data_name, ascending=False)
+        
+        # Formata a coluna de data para visualização DD/MM/AAAA amigável
+        def format_date_show(dt):
+            if pd.isna(dt):
+                return "-"
+            return dt.strftime("%d/%m/%Y")
+            
+        historico_ordenado[col_data_name] = historico_ordenado[col_data_name].apply(format_date_show)
+        return historico_ordenado
         
     except Exception as e:
         print(f"Erro ao buscar histórico do bloco: {e}")
@@ -1376,3 +1433,331 @@ def get_listas_endurentes():
     except Exception as e:
         print(f"Erro ao carregar lista de endurecedores: {e}")
         return []
+
+
+def get_apontamento_paradas(id_apontamento):
+    """
+    Retorna as paradas associadas a um ID de apontamento específico.
+    """
+    try:
+        file_path = _get_apontamento_file()
+        sheet_name = _get_sheet("SHEET_AP_PARADAS")
+        df = pd.read_excel(file_path, sheet_name=sheet_name, engine="openpyxl")
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        
+        # Filtra pelo ID
+        if "ID_APONTAMENTO" in df.columns:
+            # Garante comparação segura de IDs como inteiros/números
+            df["ID_APONTAMENTO"] = pd.to_numeric(df["ID_APONTAMENTO"], errors="coerce")
+            return df[df["ID_APONTAMENTO"] == float(id_apontamento)].copy()
+        return pd.DataFrame()
+    except Exception as e:
+        print(f"Erro ao buscar paradas do apontamento {id_apontamento}: {e}")
+        return pd.DataFrame()
+
+
+def get_apontamento_insumos(id_apontamento):
+    """
+    Retorna os insumos associados a um ID de apontamento específico.
+    """
+    try:
+        file_path = _get_apontamento_file()
+        sheet_name = _get_sheet("SHEET_AP_INSUMOS")
+        df = pd.read_excel(file_path, sheet_name=sheet_name, engine="openpyxl")
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        
+        # Filtra pelo ID
+        if "ID_APONTAMENTO" in df.columns:
+            # Garante comparação segura de IDs como inteiros/números
+            df["ID_APONTAMENTO"] = pd.to_numeric(df["ID_APONTAMENTO"], errors="coerce")
+            return df[df["ID_APONTAMENTO"] == float(id_apontamento)].copy()
+        return pd.DataFrame()
+    except Exception as e:
+        print(f"Erro ao buscar insumos do apontamento {id_apontamento}: {e}")
+        return pd.DataFrame()
+
+
+def delete_apontamento(id_apontamento):
+    """
+    Exclui fisicamente um apontamento do Excel pelo ID, limpando o registro principal (DB),
+    as paradas associadas (PARADAS) e os insumos associados (INSUMOS).
+    """
+    try:
+        file_path = _get_apontamento_file()
+        wb = openpyxl.load_workbook(file_path)
+        
+        id_val_float = float(id_apontamento)
+        
+        # 1. Limpa na aba DB
+        sheet_bd = _get_sheet("SHEET_AP_BD")
+        if sheet_bd in wb.sheetnames:
+            ws_bd = wb[sheet_bd]
+            # Localiza a linha do cabeçalho
+            header_row_idx = 6
+            for r in range(1, 21):
+                row_vals = [str(ws_bd.cell(row=r, column=c).value).strip().upper() for c in range(1, ws_bd.max_column + 1)]
+                if "PROCESSO" in row_vals or "DATA REG" in row_vals or "MATERIAL+BLOCO" in row_vals:
+                    header_row_idx = r
+                    break
+            
+            # Mapeia cabeçalhos para achar a coluna ID
+            col_id_idx = None
+            for c in range(1, ws_bd.max_column + 1):
+                val = ws_bd.cell(row=header_row_idx, column=c).value
+                if val and str(val).strip().upper() == "ID":
+                    col_id_idx = c
+                    break
+            
+            if col_id_idx:
+                # Deleta de baixo para cima para não quebrar os índices enquanto deleta
+                for r in range(ws_bd.max_row, header_row_idx, -1):
+                    cell_val = ws_bd.cell(row=r, column=col_id_idx).value
+                    try:
+                        if cell_val is not None and float(cell_val) == id_val_float:
+                            ws_bd.delete_rows(r, 1)
+                    except:
+                        pass
+        
+        # 2. Limpa na aba PARADAS
+        sheet_paradas = _get_sheet("SHEET_AP_PARADAS")
+        if sheet_paradas in wb.sheetnames:
+            ws_p = wb[sheet_paradas]
+            # O cabeçalho é a linha 1
+            col_id_idx = None
+            for c in range(1, ws_p.max_column + 1):
+                val = ws_p.cell(row=1, column=c).value
+                if val and str(val).strip().upper() == "ID_APONTAMENTO":
+                    col_id_idx = c
+                    break
+            
+            if col_id_idx:
+                for r in range(ws_p.max_row, 1, -1):
+                    cell_val = ws_p.cell(row=r, column=col_id_idx).value
+                    try:
+                        if cell_val is not None and float(cell_val) == id_val_float:
+                            ws_p.delete_rows(r, 1)
+                    except:
+                        pass
+        
+        # 3. Limpa na aba INSUMOS
+        sheet_insumos = _get_sheet("SHEET_AP_INSUMOS")
+        if sheet_insumos in wb.sheetnames:
+            ws_i = wb[sheet_insumos]
+            # O cabeçalho é a linha 1
+            col_id_idx = None
+            for c in range(1, ws_i.max_column + 1):
+                val = ws_i.cell(row=1, column=c).value
+                if val and str(val).strip().upper() == "ID_APONTAMENTO":
+                    col_id_idx = c
+                    break
+            
+            if col_id_idx:
+                for r in range(ws_i.max_row, 1, -1):
+                    cell_val = ws_i.cell(row=r, column=col_id_idx).value
+                    try:
+                        if cell_val is not None and float(cell_val) == id_val_float:
+                            ws_i.delete_rows(r, 1)
+                    except:
+                        pass
+
+        # 4. Tenta atualizar Tabela do Excel (ListObject) se existir
+        try:
+            if ws_bd.tables:
+                for table_name, table in ws_bd.tables.items():
+                    current_ref = table.ref
+                    parts = current_ref.split(":")
+                    if len(parts) == 2:
+                        start_cell = parts[0]
+                        import re
+                        col_part = re.sub(r'\d+', '', parts[1])
+                        new_ref = f"{start_cell}:{col_part}{ws_bd.max_row}"
+                        table.ref = new_ref
+        except: pass
+
+        wb.save(file_path)
+        return True
+    except Exception as e:
+        print(f"Erro ao excluir apontamento {id_apontamento}: {e}")
+        return False
+
+
+def update_apontamento(id_apontamento, updates_dict):
+    """
+    Atualiza dados de um apontamento existente na aba DB do arquivo de Apontamento.
+    Mapeia as chaves de updates_dict para as colunas físicas do Excel usando o system mapping.
+    """
+    try:
+        file_path = _get_apontamento_file()
+        wb = openpyxl.load_workbook(file_path)
+        sheet_bd = _get_sheet("SHEET_AP_BD")
+        ws = wb[sheet_bd]
+        
+        id_val_float = float(id_apontamento)
+        
+        # Busca dinâmica do cabeçalho
+        header_row_idx = 6
+        for r in range(1, 21):
+            row_vals = [str(ws.cell(row=r, column=c).value).strip().upper() for c in range(1, ws.max_column + 1)]
+            if "PROCESSO" in row_vals or "DATA REG" in row_vals or "MATERIAL+BLOCO" in row_vals:
+                header_row_idx = r
+                break
+        
+        # Mapeia colunas do cabeçalho
+        headers = {}
+        for c in range(1, ws.max_column + 1):
+            val = ws.cell(row=header_row_idx, column=c).value
+            if val:
+                headers[str(val).strip().upper()] = c
+        
+        col_id_idx = headers.get("ID")
+        if not col_id_idx:
+            print("Coluna ID não encontrada na aba DB.")
+            return False
+            
+        # Localiza a linha correspondente ao ID
+        target_row_idx = None
+        for r in range(header_row_idx + 1, ws.max_row + 1):
+            cell_val = ws.cell(row=r, column=col_id_idx).value
+            try:
+                if cell_val is not None and float(cell_val) == id_val_float:
+                    target_row_idx = r
+                    break
+            except:
+                pass
+                
+        if not target_row_idx:
+            print(f"Apontamento com ID {id_apontamento} não encontrado.")
+            return False
+            
+        system_mapping = _get_system_mapping()
+        
+        # Atualiza os valores
+        for key, value in updates_dict.items():
+            target_col = None
+            if key in system_mapping:
+                for alias in system_mapping[key]:
+                    if alias.upper() in headers:
+                        target_col = alias.upper()
+                        break
+            if not target_col and key.upper() in headers:
+                target_col = key.upper()
+                
+            if target_col:
+                col_idx = headers[target_col]
+                ws.cell(row=target_row_idx, column=col_idx, value=value)
+                
+        wb.save(file_path)
+        return True
+    except Exception as e:
+        print(f"Erro ao atualizar apontamento {id_apontamento}: {e}")
+        return False
+
+
+def update_apontamento_relations(id_apontamento, paradas_list, insumos_list):
+    """
+    Exclui as paradas e insumos antigos vinculados ao id_apontamento,
+    e grava os novos registros recebidos na edição.
+    """
+    try:
+        file_path = _get_apontamento_file()
+        wb = openpyxl.load_workbook(file_path)
+        
+        id_val_float = float(id_apontamento)
+        system_mapping = _get_system_mapping()
+        
+        # 1. Limpa e grava na aba PARADAS
+        sheet_paradas = _get_sheet("SHEET_AP_PARADAS")
+        if sheet_paradas in wb.sheetnames:
+            ws_p = wb[sheet_paradas]
+            col_id_idx = None
+            for c in range(1, ws_p.max_column + 1):
+                val = ws_p.cell(row=1, column=c).value
+                if val and str(val).strip().upper() == "ID_APONTAMENTO":
+                    col_id_idx = c
+                    break
+            
+            if col_id_idx:
+                for r in range(ws_p.max_row, 1, -1):
+                    cell_val = ws_p.cell(row=r, column=col_id_idx).value
+                    try:
+                        if cell_val is not None and float(cell_val) == id_val_float:
+                            ws_p.delete_rows(r, 1)
+                    except:
+                        pass
+            
+            # Grava as novas paradas
+            headers_p = {}
+            for c in range(1, ws_p.max_column + 1):
+                val = ws_p.cell(row=1, column=c).value
+                if val:
+                    headers_p[str(val).strip().upper()] = c
+            
+            next_row_p = ws_p.max_row + 1
+            if paradas_list:
+                for p in paradas_list:
+                    p["ID_APONTAMENTO"] = id_val_float
+                    for key, value in p.items():
+                        target_col = None
+                        if key in system_mapping:
+                            for alias in system_mapping[key]:
+                                if alias.upper() in headers_p:
+                                    target_col = alias.upper()
+                                    break
+                        if not target_col and key.upper() in headers_p:
+                            target_col = key.upper()
+                        
+                        if target_col:
+                            ws_p.cell(row=next_row_p, column=headers_p[target_col], value=value)
+                    next_row_p += 1
+
+        # 2. Limpa e grava na aba INSUMOS
+        sheet_insumos = _get_sheet("SHEET_AP_INSUMOS")
+        if sheet_insumos in wb.sheetnames:
+            ws_i = wb[sheet_insumos]
+            col_id_idx = None
+            for c in range(1, ws_i.max_column + 1):
+                val = ws_i.cell(row=1, column=c).value
+                if val and str(val).strip().upper() == "ID_APONTAMENTO":
+                    col_id_idx = c
+                    break
+            
+            if col_id_idx:
+                for r in range(ws_i.max_row, 1, -1):
+                    cell_val = ws_i.cell(row=r, column=col_id_idx).value
+                    try:
+                        if cell_val is not None and float(cell_val) == id_val_float:
+                            ws_i.delete_rows(r, 1)
+                    except:
+                        pass
+                        
+            # Grava os novos insumos
+            headers_i = {}
+            for c in range(1, ws_i.max_column + 1):
+                val = ws_i.cell(row=1, column=c).value
+                if val:
+                    headers_i[str(val).strip().upper()] = c
+            
+            next_row_i = ws_i.max_row + 1
+            if insumos_list:
+                for i_data in insumos_list:
+                    i_data["ID_APONTAMENTO"] = id_val_float
+                    for key, value in i_data.items():
+                        target_col = None
+                        if key in system_mapping:
+                            for alias in system_mapping[key]:
+                                if alias.upper() in headers_i:
+                                    target_col = alias.upper()
+                                    break
+                        if not target_col and key.upper() in headers_i:
+                            target_col = key.upper()
+                        
+                        if target_col:
+                            ws_i.cell(row=next_row_i, column=headers_i[target_col], value=value)
+                    next_row_i += 1
+
+        wb.save(file_path)
+        return True
+    except Exception as e:
+        print(f"Erro ao atualizar relações do apontamento {id_apontamento}: {e}")
+        return False
+

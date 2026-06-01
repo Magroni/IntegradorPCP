@@ -1,5 +1,5 @@
 # AGENT_CONTEXT.md — Contexto do Projeto PCP Costa Granitos
-> **Atualizado em:** 2026-05-26 (v19)  
+> **Atualizado em:** 2026-06-01 (v20)  
 > **Propósito:** Arquivo de contexto para agentes de IA. Leia este arquivo antes de qualquer alteração no projeto.
 
 ---
@@ -176,6 +176,8 @@ update_base_dados(df)              # Regrava a aba BASE DE DADOS com o df editad
 add_apontamento_batch(batch)       # Grava múltiplos apontamentos de uma vez (carrinho)
 add_paradas(paradas_list)          # Grava paradas na aba PARADAS
 add_insumos(insumos_list)          # Grava insumos na aba INSUMOS
+update_apontamento_relations(id, par, ins)  # Atualiza paradas/insumos de um apontamento limpando os antigos e reescrevendo os novos
+update_apontamento(id, updates)    # Atualiza dados de cabeçalho do apontamento na aba DB
 ```
 
 ### Validações de Negócio
@@ -251,6 +253,7 @@ O arquivo `config.json` na raiz do projeto controla os caminhos:
 
 | Data | Alteração |
 |------|-----------| 
+| 2026-06-01 | **Edição Completa de Apontamentos — Paradas & Insumos Integrados (v20)**: Expandido o formulário de edição de apontamento na Aba 5 (**🔍 Consulta de Apontamentos**) para suportar a edição total e granular de todos os pontos de um apontamento de produção. O formulário agora carrega, pré-popula e renderiza duas tabelas interativas (`st.data_editor`) com os **Insumos** e **Paradas de Máquina (Downtimes)** associados àquele ID de apontamento. Desenvolvida a função `dm.update_apontamento_relations` no backend para limpar fisicamente e reescrever (overwriting) os registros relacionados no Excel. Implementada a coerção estrita de tipos para string nas colunas de texto de paradas e insumos, e o tratamento robusto com `.reindex(columns=...)` para prevenir qualquer `KeyError` ou exceções de tipo de dados (`StreamlitAPIException`) por conta de colunas ausentes no banco. |
 | 2026-05-26 | **Modo Alto Contraste Unificado e Eliminação de Textos Cinza (v19)**: Implementado e unificado o Modo Alto Contraste nas duas principais interfaces de impressão do sistema: **Aba 5 (Exportação para o Chão de Fábrica)** e **Aba 6 (Relatório Formal A3/A4)**. O novo layout B&W de alto contraste elimina absolutamente todas as cores e tons de cinza do texto, forçando-os a preto puro (#000000) e os fundos a branco puro (#ffffff), prevenindo textos desbotados em impressoras monocromáticas. A tabela de totais de exportação foi redefinida para usar a elegante linha dupla de contabilidade clássica, garantindo ótima legibilidade e economia de toner no processo de impressão ou exportação para PDF. |
 | 2026-05-26 | **Ultra-compactação e Resiliência a Cabeçalhos/Rodapés (v18)**: Identificado que o overflow na exportação para PDF era causado pela opção **"Cabeçalhos e rodapés"** (Headers and Footers) ativada nas configurações da caixa de diálogo do Chrome (o que reduz a altura útil da folha em ~3cm). Para tornar o Relatório A3/A4 100% resiliente a essa configuração, compactei ainda mais a planilha: reduzi o padding das seções para `6px`, o gap entre colunas para `8px`, o tamanho das fontes das tabelas para `7.2px` e os paddings das células para `1.5px 3px` (cabeçalhos) e `1px 2px` (conteúdo), garantindo o enquadramento de **exatamente 1 página** mesmo com cabeçalhos/rodapés e margens padrões ativados no PDF. |
 | 2026-05-26 | **Ajuste de Proporção para Target A4 e Escala do Browser (v17)**: Configurada a resolução e layout do Relatório A3 para focar nas dimensões nativas de **A4 Landscape** (`size: A4 landscape;` no CSS, e limites máximos de largura compactados de `1500px`/`1540px` para `1100px`/`1120px`), mantendo a mesma proporção ideal (1:1.4142). Dessa forma, o relatório se ajusta perfeitamente em A4, e ao ser impresso ou gerado em folhas A3, a funcionalidade nativa de escala automática do navegador ("Ajustar à página" ou "Fit to Page") se encarrega de preencher e expandir o relatório pela folha inteira sem deixar espaços em branco ou sobras na margem inferior. |

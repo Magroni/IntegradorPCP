@@ -426,11 +426,12 @@ if not df_base.empty and "PROCESSO" in df_base.columns and "SETOR" in df_base.co
 df_aberto = df[~df.apply(is_finished, axis=1)].copy()
 setores_list = sorted([str(x) for x in df["SETOR"].unique() if str(x) != "" and str(x) != "nan"])
 
-tab_block, tab_view, tab_machine, tab_apontamento, tab_export, tab_analises, tab_config = st.tabs([
+tab_block, tab_view, tab_machine, tab_apontamento, tab_consulta, tab_export, tab_analises, tab_config = st.tabs([
     "🛠️ Adicionar / Editar Bloco", 
     "👁️ Base de Dados", 
     "🗓️ Janela de Programações",
     "✅ Apontamento",
+    "🔍 Consulta de Apontamentos",
     "🖨️ Exportação",
     "📈 Análises e Indicadores",
     "⚙️ Opções Gerais"
@@ -1374,9 +1375,27 @@ with tab_apontamento:
                     st.info(f"Você tem {len(st.session_state['carrinho_ap'])} apontamento(s) no carrinho.")
                     
                     dados_view = []
-                    for rec, par, ins in st.session_state["carrinho_ap"]:
-                        dados_view.append({"Bloco": rec["BLOCO_RAW"], "Material": rec["NOME_MATERIAL"], "Processo": rec["PROCESSO_APONTADO"], "Chapas": rec["QTD_CH"]})
+                    for idx, (rec, par, ins) in enumerate(st.session_state["carrinho_ap"]):
+                        dados_view.append({
+                            "Nº": idx + 1,
+                            "Bloco": rec["BLOCO_RAW"], 
+                            "Material": rec["NOME_MATERIAL"], 
+                            "Processo": rec["PROCESSO_APONTADO"], 
+                            "Chapas": rec["QTD_CH"]
+                        })
                     st.table(pd.DataFrame(dados_view))
+                    
+                    with st.expander("❌ Remover Item Específico do Carrinho"):
+                        item_to_remove = st.selectbox(
+                            "Selecione o apontamento do carrinho para remover:",
+                            range(len(st.session_state["carrinho_ap"])),
+                            format_func=lambda i: f"{i+1}. Bloco {st.session_state['carrinho_ap'][i][0]['BLOCO_RAW']} - {st.session_state['carrinho_ap'][i][0]['PROCESSO_APONTADO']}",
+                            key="select_item_remove_cart"
+                        )
+                        if st.button("Confirmar Remoção do Item Selecionado", use_container_width=True, key="btn_remove_item_cart"):
+                            st.session_state["carrinho_ap"].pop(item_to_remove)
+                            st.success("Item removido do carrinho com sucesso!")
+                            st.rerun()
                     
                     c_b1, c_b2 = st.columns(2)
                     with c_b1:
@@ -1619,6 +1638,593 @@ with tab_apontamento:
                 if sucessos > 0:
                     st.success(f"✅ {sucessos} processos atualizados!")
                     st.rerun()
+
+
+# ----------------- ABA 5: CONSULTA DE APONTAMENTOS -----------------
+with tab_consulta:
+    st.header("🔍 Consulta de Apontamentos Realizados")
+    st.markdown("Busque e visualize a ficha consolidada detalhada de qualquer apontamento de produção, incluindo processos, paradas de máquina e insumos utilizados.")
+
+    # 1. Carrega todos os apontamentos
+    with st.spinner("Carregando apontamentos do banco de dados..."):
+        df_all_ap = dm.get_all_apontamentos()
+
+    if df_all_ap.empty:
+        st.warning("Nenhum apontamento encontrado na base de dados.")
+    else:
+        # Prepara mapeamento e colunas de forma robusta
+        mapping = dm._get_system_mapping()
+        
+        # Identifica a coluna do Bloco
+        col_bloco = None
+        for alias in mapping.get("BLOCO_RAW", []):
+            if alias.upper() in df_all_ap.columns:
+                col_bloco = alias.upper()
+                break
+        if not col_bloco:
+            col_bloco = "NUMERO_BLOCO" if "NUMERO_BLOCO" in df_all_ap.columns else df_all_ap.columns[3]
+
+        # Identifica colunas
+        col_data = "DATA_REG" if "DATA_REG" in df_all_ap.columns else "DATA"
+        col_setor = "SETOR" if "SETOR" in df_all_ap.columns else "SETOR_AP"
+        col_proc = "PROCESSO" if "PROCESSO" in df_all_ap.columns else "PROCESSO_APONTADO"
+        col_operador = "OPERADOR" if "OPERADOR" in df_all_ap.columns else "OPERADOR"
+        col_chapas = "QTD_CHAPAS" if "QTD_CHAPAS" in df_all_ap.columns else "QTD_CH"
+
+        # Converte a coluna de data de forma robusta
+        df_all_ap["DATA_FILTRO"] = df_all_ap[col_data].apply(dm.parse_excel_date)
+        
+        # Inicializa o contador de resets de datas de forma segura se não existir
+        if "dates_reset_counter" not in st.session_state:
+            st.session_state["dates_reset_counter"] = 0
+            
+        # --- CAMPOS DE PESQUISA ---
+        with st.container(border=True):
+            st.markdown("#### 🔍 Filtros de Pesquisa")
+            c_f1, c_f2, c_f3, c_f4 = st.columns(4)
+            
+            with c_f1:
+                filtro_bloco = st.text_input("Nº Bloco", placeholder="Ex: 3706", key="c_filtro_bloco_val")
+                
+            with c_f2:
+                unique_setores = ["Todos"] + sorted(list(str(s).strip() for s in df_all_ap[col_setor].dropna().unique() if str(s).strip()))
+                filtro_setor = st.selectbox("Máquina/Setor", unique_setores, key="c_filtro_setor_val")
+                
+            with c_f3:
+                unique_processos = ["Todos"] + sorted(list(str(p).strip() for p in df_all_ap[col_proc].dropna().unique() if str(p).strip()))
+                filtro_processo = st.selectbox("Processo/Etapa", unique_processos, key="c_filtro_proc_val")
+                
+            with c_f4:
+                filtro_operador = st.text_input("Operador (Busca parcial)", placeholder="Ex: MARLON", key="c_filtro_op_val")
+            
+            # Seletor de intervalo de datas de registro
+            st.markdown("---")
+            c_date, c_clear = st.columns([3, 1])
+            with c_date:
+                min_date = df_all_ap["DATA_FILTRO"].dropna().min()
+                max_date = df_all_ap["DATA_FILTRO"].dropna().max()
+                if pd.isna(min_date): min_date = datetime.now() - timedelta(days=30)
+                if pd.isna(max_date): max_date = datetime.now()
+                
+                min_date_val = min_date.date() if hasattr(min_date, "date") else min_date
+                max_date_val = max_date.date() if hasattr(max_date, "date") else max_date
+                
+                # Gera uma chave única dinâmica vinculada ao dates_reset_counter para forçar remota do componente
+                date_widget_key = f"c_filtro_datas_reg_{st.session_state['dates_reset_counter']}"
+                
+                filtro_datas = st.date_input(
+                    "Intervalo de Data de Registro",
+                    value=(min_date_val, max_date_val),
+                    format="DD/MM/YYYY",
+                    key=date_widget_key
+                )
+            with c_clear:
+                st.write(""); st.write("")
+                # Botão para resetar as datas de pesquisa
+                if st.button("Resetar Datas", use_container_width=True, key="c_btn_reset_dates"):
+                    # Remove o cache de chave antigo se houver
+                    st.session_state.pop(date_widget_key, None)
+                    # Incrementa o contador para alterar a chave do date_input e forçar remontagem limpa no React
+                    st.session_state["dates_reset_counter"] += 1
+                    st.rerun()
+
+        # Aplica os filtros ao DataFrame
+        df_filtrado = df_all_ap.copy()
+        
+        if filtro_bloco:
+            df_filtrado = df_filtrado[df_filtrado[col_bloco].apply(lambda x: dm.blocos_match(x, filtro_bloco))]
+            
+        if filtro_setor != "Todos":
+            df_filtrado = df_filtrado[df_filtrado[col_setor] == filtro_setor]
+            
+        if filtro_processo != "Todos":
+            df_filtrado = df_filtrado[df_filtrado[col_proc] == filtro_processo]
+            
+        if filtro_operador:
+            df_filtrado = df_filtrado[df_filtrado[col_operador].astype(str).str.contains(filtro_operador, case=False, na=False)]
+
+        # Aplica o filtro do intervalo de datas de registro
+        if isinstance(filtro_datas, tuple) and len(filtro_datas) == 2:
+            start_date, end_date = filtro_datas
+            df_filtrado = df_filtrado[
+                (df_filtrado["DATA_FILTRO"].dt.date >= start_date) & 
+                (df_filtrado["DATA_FILTRO"].dt.date <= end_date)
+            ]
+        elif isinstance(filtro_datas, tuple) and len(filtro_datas) == 1:
+            start_date = filtro_datas[0]
+            df_filtrado = df_filtrado[df_filtrado["DATA_FILTRO"].dt.date >= start_date]
+
+        # Ordena por data decrescente e ID decrescente
+        df_filtrado = df_filtrado.sort_values(by=["DATA_FILTRO", "ID"], ascending=[False, False])
+
+        st.subheader(f"📋 Lista de Apontamentos ({len(df_filtrado)} encontrados)")
+        
+        if df_filtrado.empty:
+            st.info("Nenhum apontamento corresponde aos filtros selecionados.")
+        else:
+            # Prepara dados para exibição amigável
+            df_display = df_filtrado.copy()
+            df_display["DATA_FORMATTED"] = df_display["DATA_FILTRO"].apply(lambda d: d.strftime("%d/%m/%Y") if pd.notna(d) else "-")
+            
+            # Converte e formata a coluna de data de início de produção (Data Produção)
+            df_display["DATA_PROD_FILTRO"] = df_display["DATA_INICIO"].apply(dm.parse_excel_date)
+            df_display["DATA_PROD_FORMATTED"] = df_display["DATA_PROD_FILTRO"].apply(lambda d: d.strftime("%d/%m/%Y") if pd.notna(d) else "-")
+            
+            df_display["ID_SHOW"] = df_display["ID"].astype(str)
+            df_display["BLOCO_SHOW"] = df_display[col_bloco].astype(str)
+            df_display["CHAPAS_SHOW"] = df_display[col_chapas].apply(lambda x: int(float(x)) if pd.notna(x) and str(x).strip() != "" else 0)
+            
+            # Colunas limpas para a tabela (adicionada a coluna de data de produção)
+            cols_show = ["ID_SHOW", "DATA_FORMATTED", "DATA_PROD_FORMATTED", "BLOCO_SHOW", "MATERIAL", col_proc, col_setor, "CHAPAS_SHOW", col_operador]
+            df_display_clean = df_display[[c for c in cols_show if c in df_display.columns]].copy()
+            df_display_clean.columns = [
+                "ID", "Data Registro", "Data Produção", "Bloco", "Material", "Processo", "Máquina/Setor", "Qtd. Chapas", "Operador"
+            ][:len(df_display_clean.columns)]
+            
+            # Adiciona nota amigável instruindo o usuário a clicar na linha
+            st.caption("💡 *Dica: Clique em qualquer linha da tabela abaixo para carregar a Ficha Consolidada completa daquele apontamento!*")
+            
+            # Instancia o dataframe com seleção habilitada
+            selection_event = st.dataframe(
+                df_display_clean,
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row"
+            )
+            
+            # Extrai a seleção de forma extremamente robusta
+            selected_rows = []
+            if selection_event:
+                if hasattr(selection_event, "selection"):
+                    sel = selection_event.selection
+                    if isinstance(sel, dict):
+                        selected_rows = sel.get("rows", [])
+                    elif hasattr(sel, "rows"):
+                        selected_rows = sel.rows
+                elif isinstance(selection_event, dict):
+                    sel = selection_event.get("selection", {})
+                    if isinstance(sel, dict):
+                        selected_rows = sel.get("rows", [])
+                    elif hasattr(sel, "rows"):
+                        selected_rows = sel.rows
+            
+            # Ficha Consolidada do apontamento selecionado
+            st.write("---")
+            st.subheader("📑 Visualizador de Ficha Consolidada")
+            
+            selected_id = None
+            if selected_rows:
+                selected_row_idx = selected_rows[0]
+                # Mapeia de volta para o ID correto no df_filtrado
+                selected_id = df_filtrado.iloc[selected_row_idx]["ID"]
+            else:
+                st.info("💡 Selecione uma linha na lista acima clicando nela para carregar a Ficha Consolidada detalhada.")
+            
+            if selected_id:
+                ap_row = df_filtrado[df_filtrado["ID"] == selected_id].iloc[0]
+                
+                # Busca as paradas e insumos no data_manager
+                with st.spinner("Buscando detalhes do apontamento..."):
+                    df_paradas = dm.get_apontamento_paradas(selected_id)
+                    df_insumos = dm.get_apontamento_insumos(selected_id)
+                
+                # Renderiza a ficha consolidada estilizada
+                st.markdown(
+                    f"""
+                    <div style="background-color: #0E1117; padding: 25px; border-radius: 12px; border: 1px solid #30363D; margin-top: 15px;">
+                        <h2 style="text-align: center; color: #58A6FF; margin-bottom: 5px;">📄 FICHA DE APONTAMENTO CONSOLIDADA</h2>
+                        <h4 style="text-align: center; color: #8B949E; margin-bottom: 25px;">Apontamento ID #{selected_id}</h4>
+                        <div style="display: flex; justify-content: space-around; font-size: 15px; margin-bottom: 25px; color: #C9D1D9; border-bottom: 1px solid #30363D; padding-bottom: 15px;">
+                            <span><b>📅 Data:</b> {ap_row['DATA_FILTRO'].strftime('%d/%m/%Y') if pd.notna(ap_row['DATA_FILTRO']) else '-'}</span>
+                            <span><b>⚙️ Máquina/Setor:</b> {ap_row.get(col_setor, '-')}</span>
+                            <span><b>👤 Operador:</b> {ap_row.get(col_operador, '-')}</span>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                
+                # Duas colunas para dados principais
+                col_res1, col_res2 = st.columns(2)
+                
+                with col_res1:
+                    with st.container(border=True):
+                        st.markdown("#### 🧱 Identificação do Bloco & Material")
+                        st.write(f"**Número do Bloco:** {ap_row.get(col_bloco, '-')}")
+                        st.write(f"**Material:** {ap_row.get('MATERIAL', '-')}")
+                        st.write(f"**Espessura:** {ap_row.get('ESP', '-')}")
+                        st.write(f"**Dimensões (Comp x Alt):** {ap_row.get('COMP', '-')}m × {ap_row.get('ALT', '-')}m")
+                        
+                        m2_val = ap_row.get("QTDM2") or ap_row.get("QTD_M2") or 0.0
+                        if isinstance(m2_val, (int, float)):
+                            st.write(f"**Volume Total Produzido:** {m2_val:.3f} M²")
+                        else:
+                            st.write(f"**Volume Total Produzido:** {m2_val} M²")
+                            
+                with col_res2:
+                    with st.container(border=True):
+                        st.markdown("#### ⚙️ Detalhes do Processo & Tempos")
+                        st.write(f"**Processo / Etapa:** {ap_row.get(col_proc, '-')}")
+                        st.write(f"**Turno:** {ap_row.get('TURNO', '-')}")
+                        st.write(f"**Quantidade de Chapas:** {int(float(ap_row.get(col_chapas, 0))) if pd.notna(ap_row.get(col_chapas)) else 0} chapas")
+                        st.write(f"**Horário:** {ap_row.get('HORA_INICIO', '-')} às {ap_row.get('HORA_FIM', '-')}")
+                        st.write(f"**Tempo de Processo:** {ap_row.get('TEMPO_PROCESSO', '-')} h/min")
+                
+                st.write("")
+                
+                # Paradas e Insumos lado a lado
+                col_det1, col_det2 = st.columns(2)
+                
+                with col_det1:
+                    st.markdown("#### 🛑 Paradas de Máquina (Downtimes)")
+                    if df_paradas.empty:
+                        st.info("Nenhuma parada de máquina registrada para este apontamento.")
+                    else:
+                        df_p_clean = df_paradas.copy()
+                        cols_p = ["MOTIVO", "DATA_INICIO", "HORA_INICIO", "DATA_FIM", "HORA_FIM", "TEMPO"]
+                        df_p_clean = df_p_clean[[c for c in cols_p if c in df_p_clean.columns]].copy()
+                        df_p_clean.columns = ["Motivo", "Data Ini", "Hora Ini", "Data Fim", "Hora Fim", "Tempo"]
+                        st.dataframe(df_p_clean, use_container_width=True, hide_index=True)
+                        
+                        # Totalização
+                        st.success(f"**Total de paradas:** {len(df_p_clean)}")
+                        
+                with col_det2:
+                    st.markdown("#### 🧪 Insumos Utilizados")
+                    if df_insumos.empty:
+                        st.info("Nenhum insumo ou material adicional registrado para este apontamento.")
+                    else:
+                        df_i_clean = df_insumos.copy()
+                        cols_i = ["TIPO_INSUMO", "DESCRICAO", "QUANTIDADE", "UNIDADE", "TEMPO_SECAGEM"]
+                        df_i_clean = df_i_clean[[c for c in cols_i if c in df_i_clean.columns]].copy()
+                        df_i_clean.columns = ["Tipo Insumo", "Descrição", "Qtd", "Unidade", "Secagem (h)"]
+                        st.dataframe(df_i_clean, use_container_width=True, hide_index=True)
+                        
+                        st.success(f"**Total de insumos:** {len(df_i_clean)}")
+
+                # --- GERENCIAMENTO DE APONTAMENTOS (EXCLUSÃO E EDIÇÃO) ---
+                st.write("")
+                st.markdown("---")
+                st.markdown("### ⚠️ Gerenciamento do Apontamento")
+                
+                c_del1, c_del2, c_del3 = st.columns([1.5, 1.5, 2])
+                with c_del1:
+                    btn_excluir = st.button("🗑️ EXCLUIR ESTE APONTAMENTO", type="primary", use_container_width=True, key=f"c_btn_excluir_{selected_id}")
+                with c_del2:
+                    btn_editar = st.button("📝 EDITAR APONTAMENTO", use_container_width=True, key=f"c_btn_editar_{selected_id}")
+                
+                if btn_excluir:
+                    st.session_state[f"conf_del_{selected_id}"] = True
+                    st.rerun()
+                    
+                if btn_editar:
+                    st.session_state[f"edit_ap_{selected_id}"] = True
+                    st.rerun()
+                    
+                if st.session_state.get(f"edit_ap_{selected_id}"):
+                    # Carrega as paradas e insumos existentes para a edição
+                    df_p_exist = dm.get_apontamento_paradas(selected_id)
+                    df_i_exist = dm.get_apontamento_insumos(selected_id)
+                    
+                    # Prepara df_p_edit
+                    df_p_edit = pd.DataFrame(columns=["MOTIVO", "DIA_INICIO", "HORA_INICIO", "DIA_FIM", "HORA_FIM"])
+                    if not df_p_exist.empty:
+                        # Mapeia DATA_INICIO / DATA_FIM para DIA_INICIO / DIA_FIM se vier do Excel antigo
+                        col_map = {}
+                        for c in df_p_exist.columns:
+                            if c in ["DATA_INICIO", "DIA_INICIO"]:
+                                col_map[c] = "DIA_INICIO"
+                            elif c in ["DATA_FIM", "DIA_FIM"]:
+                                col_map[c] = "DIA_FIM"
+                            else:
+                                col_map[c] = c
+                        df_p_norm = df_p_exist.rename(columns=col_map)
+                        df_p_edit = df_p_norm.reindex(columns=["MOTIVO", "DIA_INICIO", "HORA_INICIO", "DIA_FIM", "HORA_FIM"]).copy()
+                        df_p_edit["DIA_INICIO"] = df_p_edit["DIA_INICIO"].apply(lambda x: dm.parse_excel_date(x).date() if pd.notna(dm.parse_excel_date(x)) else datetime.now().date())
+                        df_p_edit["DIA_FIM"] = df_p_edit["DIA_FIM"].apply(lambda x: dm.parse_excel_date(x).date() if pd.notna(dm.parse_excel_date(x)) else datetime.now().date())
+                    
+                    df_p_edit["MOTIVO"] = df_p_edit["MOTIVO"].fillna("").astype(str).str.strip()
+                    df_p_edit["HORA_INICIO"] = df_p_edit["HORA_INICIO"].fillna("").astype(str).str.replace("nan", "", regex=False).str.strip()
+                    df_p_edit["HORA_FIM"] = df_p_edit["HORA_FIM"].fillna("").astype(str).str.replace("nan", "", regex=False).str.strip()
+                    
+                    # Prepara df_i_edit safely
+                    df_i_edit = pd.DataFrame(columns=["TIPO_INSUMO", "DESCRICAO", "QUANTIDADE", "UNIDADE", "TEMPO_SECAGEM", "CABECAS", "INSUMO_DETALHE"])
+                    if not df_i_exist.empty:
+                        df_i_edit = df_i_exist.reindex(columns=["TIPO_INSUMO", "DESCRICAO", "QUANTIDADE", "UNIDADE", "TEMPO_SECAGEM", "CABECAS", "INSUMO_DETALHE"]).copy()
+                    
+                    df_i_edit["QUANTIDADE"] = pd.to_numeric(df_i_edit["QUANTIDADE"], errors="coerce").fillna(0.0)
+                    df_i_edit["TIPO_INSUMO"] = df_i_edit["TIPO_INSUMO"].fillna("").astype(str).str.strip()
+                    df_i_edit["DESCRICAO"] = df_i_edit["DESCRICAO"].fillna("").astype(str).str.strip()
+                    df_i_edit["UNIDADE"] = df_i_edit["UNIDADE"].fillna("").astype(str).str.strip()
+                    df_i_edit["TEMPO_SECAGEM"] = df_i_edit["TEMPO_SECAGEM"].fillna("").astype(str).str.replace(".0", "", regex=False).str.replace("nan", "", regex=False).str.strip()
+                    df_i_edit["CABECAS"] = df_i_edit["CABECAS"].fillna("").astype(str).str.replace("nan", "", regex=False).str.strip()
+                    df_i_edit["INSUMO_DETALHE"] = df_i_edit["INSUMO_DETALHE"].fillna("").astype(str).str.replace("nan", "", regex=False).str.strip()
+
+                    st.write("")
+                    with st.form(f"form_editar_ap_{selected_id}"):
+                        st.markdown("### 📝 Editar Dados do Apontamento")
+                        
+                        c_ed1, c_ed2, c_ed3 = st.columns(3)
+                        with c_ed1:
+                            edit_proc = st.text_input("Processo*", value=str(ap_row.get(col_proc, "")))
+                            edit_material = st.text_input("Material*", value=str(ap_row.get("MATERIAL", "")))
+                            raw_ch = ap_row.get(col_chapas, 0)
+                            try: edit_qtd_val = int(float(raw_ch)) if pd.notna(raw_ch) and str(raw_ch).strip() != "" else 0
+                            except: edit_qtd_val = 0
+                            edit_qtd = st.number_input("Qtd Chapas*", min_value=0, step=1, value=edit_qtd_val)
+                            raw_esp = ap_row.get("ESP", 0)
+                            try: edit_esp_val = float(raw_esp) if pd.notna(raw_esp) and str(raw_esp).strip() != "" else 0.0
+                            except: edit_esp_val = 0.0
+                            edit_esp = st.number_input("Espessura", min_value=0.0, step=0.1, value=edit_esp_val)
+                            
+                        with c_ed2:
+                            unique_setores_clean = [s for s in unique_setores if s != "Todos"]
+                            current_setor = str(ap_row.get(col_setor, "")).strip()
+                            idx_setor = 0
+                            if current_setor in unique_setores_clean:
+                                idx_setor = unique_setores_clean.index(current_setor)
+                            edit_setor = st.selectbox("Máquina/Setor*", unique_setores_clean, index=idx_setor)
+                            raw_comp = ap_row.get("COMP", 0)
+                            try: edit_comp_val = float(raw_comp) if pd.notna(raw_comp) and str(raw_comp).strip() != "" else 0.0
+                            except: edit_comp_val = 0.0
+                            edit_comp = st.number_input("Comprimento (m)", min_value=0.0, step=0.01, value=edit_comp_val)
+                            raw_alt = ap_row.get("ALT", 0)
+                            try: edit_alt_val = float(raw_alt) if pd.notna(raw_alt) and str(raw_alt).strip() != "" else 0.0
+                            except: edit_alt_val = 0.0
+                            edit_alt = st.number_input("Altura (m)", min_value=0.0, step=0.01, value=edit_alt_val)
+                            edit_op = st.text_input("Operador", value=str(ap_row.get(col_operador, "")))
+                            
+                        with c_ed3:
+                            raw_dia_ini = ap_row.get("DIA_INICIO") or ap_row.get("DATA_INICIO") or ap_row.get("DATA_REG")
+                            parsed_dia_ini = dm.parse_excel_date(raw_dia_ini)
+                            if pd.isna(parsed_dia_ini): parsed_dia_ini = datetime.now()
+                            edit_dia_ini = st.date_input("Dia Início Produção*", value=parsed_dia_ini.date() if hasattr(parsed_dia_ini, "date") else parsed_dia_ini, format="DD/MM/YYYY")
+                            raw_dia_fim = ap_row.get("DIA_FIM") or ap_row.get("DATA_FIM") or raw_dia_ini
+                            parsed_dia_fim = dm.parse_excel_date(raw_dia_fim)
+                            if pd.isna(parsed_dia_fim): parsed_dia_fim = datetime.now()
+                            edit_dia_fim = st.date_input("Dia Fim Produção*", value=parsed_dia_fim.date() if hasattr(parsed_dia_fim, "date") else parsed_dia_fim, format="DD/MM/YYYY")
+                            c_t1, c_t2 = st.columns(2)
+                            with c_t1: edit_hora_ini = st.text_input("Hora Início", value=str(ap_row.get("HORA_INICIO", "")))
+                            with c_t2: edit_hora_fim = st.text_input("Hora Fim", value=str(ap_row.get("HORA_FIM", "")))
+                            raw_turno = str(ap_row.get("TURNO", "D")).strip().upper()
+                            edit_turno = st.selectbox("Turno", ["D", "N"], index=0 if raw_turno == "D" else 1)
+                            st.text_input("Tempo Processo (Calculado automaticamente)", value=str(ap_row.get("TEMPO_PROCESSO", "")), disabled=True)
+
+                        st.markdown("---")
+                        st.markdown("### 🛑 Paradas & 🧪 Insumos do Apontamento")
+                        c_edi, c_edp = st.columns(2)
+                        
+                        with c_edi:
+                            st.markdown("#### 🧪 Insumos Utilizados")
+                            edit_df_insumos = st.data_editor(
+                                df_i_edit,
+                                num_rows="dynamic",
+                                use_container_width=True,
+                                column_config={
+                                    "TIPO_INSUMO": st.column_config.SelectboxColumn("Tipo Insumo*", options=["RESINA", "ENDURECEDOR", "MANTA", "ABRASIVO", "OUTROS"], required=True),
+                                    "DESCRICAO": st.column_config.TextColumn("Descrição*", required=True),
+                                    "QUANTIDADE": st.column_config.NumberColumn("Qtd*", min_value=0.0, format="%.3f"),
+                                    "UNIDADE": st.column_config.SelectboxColumn("Unidade", options=["KG", "M²", "UNID", "OUTROS"]),
+                                    "TEMPO_SECAGEM": st.column_config.TextColumn("Tempo Secagem (h)"),
+                                    "CABECAS": st.column_config.TextColumn("Cab."),
+                                    "INSUMO_DETALHE": st.column_config.TextColumn("Detalhe")
+                                },
+                                key=f"editor_edit_insumos_{selected_id}"
+                            )
+                            
+                        with c_edp:
+                            st.markdown("#### 🛑 Paradas de Máquina (Downtimes)")
+                            df_tp_op = dm.get_tipo_paradas()
+                            lista_motivos_ap = sorted(list(df_tp_op["MOTIVO"].dropna().unique())) if not df_tp_op.empty else []
+                            col_conf_paradas_edit = {
+                                "DIA_INICIO": st.column_config.DateColumn("D.Início", format="DD/MM/YYYY"),
+                                "DIA_FIM": st.column_config.DateColumn("D.Fim", format="DD/MM/YYYY"),
+                                "HORA_INICIO": st.column_config.TextColumn("H.Início"),
+                                "HORA_FIM": st.column_config.TextColumn("H.Fim")
+                            }
+                            if lista_motivos_ap:
+                                col_conf_paradas_edit["MOTIVO"] = st.column_config.SelectboxColumn("Motivo da Parada*", options=lista_motivos_ap, required=True)
+                            else:
+                                col_conf_paradas_edit["MOTIVO"] = st.column_config.TextColumn("Motivo da Parada*", required=True)
+                            edit_df_paradas = st.data_editor(
+                                df_p_edit,
+                                num_rows="dynamic",
+                                use_container_width=True,
+                                column_config=col_conf_paradas_edit,
+                                key=f"editor_edit_paradas_{selected_id}"
+                            )
+
+                        c_ebtn1, c_ebtn2 = st.columns(2)
+                        with c_ebtn1: btn_salvar_edit = st.form_submit_button("💾 Salvar Alterações", type="primary", use_container_width=True)
+                        with c_ebtn2: btn_cancelar_edit = st.form_submit_button("↩️ Cancelar Edição", use_container_width=True)
+                            
+                        if btn_salvar_edit:
+                            if not edit_proc or not edit_setor or not edit_material or edit_qtd is None or not edit_dia_ini or not edit_dia_fim:
+                                st.error("❌ Preencha todos os campos obrigatórios (*) com valores válidos.")
+                            else:
+                                def parse_time_local(t_str):
+                                    if not t_str: return None
+                                    import re
+                                    from datetime import time
+                                    t = re.sub(r'\D', '', str(t_str))
+                                    if len(t) == 4:
+                                        try: return time(int(t[:2]), int(t[2:]))
+                                        except: return None
+                                    elif len(t) == 3:
+                                        try: return time(int(t[:1]), int(t[1:]))
+                                        except: return None
+                                    elif ":" in str(t_str):
+                                        parts = str(t_str).split(":")
+                                        if len(parts) == 2:
+                                            try: return time(int(parts[0]), int(parts[1]))
+                                            except: return None
+                                    return None
+                                    
+                                h_ini = parse_time_local(edit_hora_ini)
+                                h_fim = parse_time_local(edit_hora_fim)
+                                if not h_ini or not h_fim:
+                                    st.error("❌ Formato de Hora de Início ou Fim inválido (use HH:MM ou HHMM).")
+                                else:
+                                    from datetime import datetime as dt_class
+                                    dt_ini = dt_class.combine(edit_dia_ini, h_ini)
+                                    dt_fim = dt_class.combine(edit_dia_fim, h_fim)
+                                    diff_minutes = (dt_fim - dt_ini).total_seconds() / 60
+                                    
+                                    if diff_minutes <= 0:
+                                        st.error("❌ A data/hora de fim deve ser posterior à data/hora de início.")
+                                    else:
+                                        # Processamento e Validação Estrita de Paradas
+                                        par_finais = []
+                                        total_mp = 0
+                                        erro_parada = None
+                                        
+                                        for _, p_row in edit_df_paradas.iterrows():
+                                            if p_row.get("MOTIVO"):
+                                                h_ini_p = parse_time_local(p_row.get("HORA_INICIO"))
+                                                h_fim_p = parse_time_local(p_row.get("HORA_FIM"))
+                                                
+                                                if not h_ini_p or not h_fim_p:
+                                                    erro_parada = f"❌ Hora inválida ou incompleta na parada '{p_row['MOTIVO']}'."
+                                                    break
+                                                    
+                                                d_ini_p_parsed = p_row.get("DIA_INICIO")
+                                                d_fim_p_parsed = p_row.get("DIA_FIM")
+                                                
+                                                if isinstance(d_ini_p_parsed, str):
+                                                    d_ini_p_parsed = dm.parse_excel_date(d_ini_p_parsed)
+                                                if isinstance(d_fim_p_parsed, str):
+                                                    d_fim_p_parsed = dm.parse_excel_date(d_fim_p_parsed)
+                                                    
+                                                if hasattr(d_ini_p_parsed, "date"): d_ini_p_parsed = d_ini_p_parsed.date()
+                                                if hasattr(d_fim_p_parsed, "date"): d_fim_p_parsed = d_fim_p_parsed.date()
+                                                
+                                                if not d_ini_p_parsed or not d_fim_p_parsed:
+                                                    erro_parada = f"❌ Data de início ou fim inválida na parada '{p_row['MOTIVO']}'."
+                                                    break
+                                                    
+                                                dt_ini_p = datetime.combine(d_ini_p_parsed, h_ini_p)
+                                                dt_fim_p = datetime.combine(d_fim_p_parsed, h_fim_p)
+                                                mp = (dt_fim_p - dt_ini_p).total_seconds() / 60
+                                                
+                                                # Validação: Dentro do intervalo do processo?
+                                                if dt_ini_p < dt_ini or dt_fim_p > dt_fim:
+                                                    erro_parada = f"❌ Parada '{p_row['MOTIVO']}' ({h_ini_p.strftime('%H:%M')} às {h_fim_p.strftime('%H:%M')}) está fora do intervalo do processo."
+                                                    break
+                                                
+                                                if mp <= 0:
+                                                    erro_parada = f"❌ Tempo da parada '{p_row['MOTIVO']}' deve ser positivo."
+                                                    break
+
+                                                total_mp += mp
+                                                par_finais.append({
+                                                    "MOTIVO": p_row["MOTIVO"], 
+                                                    "DIA_INICIO": d_ini_p_parsed.strftime("%d/%m/%Y"), 
+                                                    "HORA_INICIO": h_ini_p.strftime("%H:%M"), 
+                                                    "DIA_FIM": d_fim_p_parsed.strftime("%d/%m/%Y"), 
+                                                    "HORA_FIM": h_fim_p.strftime("%H:%M"), 
+                                                    "TEMPO": f"{int(mp // 60):02d}:{int(mp % 60):02d}"
+                                                })
+
+                                        if erro_parada:
+                                            st.error(erro_parada)
+                                        elif total_mp > diff_minutes:
+                                            st.error(f"❌ Soma das paradas ({int(total_mp)} min) é maior que o tempo total de processo ({int(diff_minutes)} min).")
+                                        else:
+                                            # Processamento e Formatação Estrita de Insumos
+                                            ins_finais = []
+                                            for _, i_row in edit_df_insumos.iterrows():
+                                                if i_row.get("TIPO_INSUMO") and i_row.get("DESCRICAO"):
+                                                    try: q_val = float(i_row.get("QUANTIDADE", 0.0))
+                                                    except: q_val = 0.0
+                                                    
+                                                    ins_finais.append({
+                                                        "TIPO_INSUMO": str(i_row["TIPO_INSUMO"]).upper(),
+                                                        "DESCRICAO": str(i_row["DESCRICAO"]).upper(),
+                                                        "QUANTIDADE": q_val,
+                                                        "UNIDADE": str(i_row.get("UNIDADE", "UNID")).upper(),
+                                                        "TEMPO_SECAGEM": i_row.get("TEMPO_SECAGEM", "") if pd.notna(i_row.get("TEMPO_SECAGEM")) else "",
+                                                        "CABECAS": i_row.get("CABECAS", "") if pd.notna(i_row.get("CABECAS")) else "",
+                                                        "INSUMO_DETALHE": i_row.get("INSUMO_DETALHE", "") if pd.notna(i_row.get("INSUMO_DETALHE")) else ""
+                                                    })
+                                                    
+                                            calculated_tempo = f"{int(diff_minutes // 60):02d}:{int(diff_minutes % 60):02d}"
+                                            
+                                            updates = {
+                                                "PROCESSO_APONTADO": edit_proc,
+                                                "SETOR_AP": edit_setor,
+                                                "NOME_MATERIAL": edit_material.upper(),
+                                                "QTD_CH": edit_qtd,
+                                                "ESP": edit_esp if edit_esp else "",
+                                                "COMP": edit_comp if edit_comp else "",
+                                                "ALT": edit_alt if edit_alt else "",
+                                                "OPERADOR": edit_op.upper() if edit_op else "",
+                                                "TURNO": edit_turno,
+                                                "TEMPO_PROCESSO": calculated_tempo,
+                                                "HORA_INICIO": h_ini.strftime("%H:%M"),
+                                                "HORA_FIM": h_fim.strftime("%H:%M"),
+                                                "DIA_INICIO": edit_dia_ini.strftime("%d/%m/%Y"),
+                                                "DIA_FIM": edit_dia_fim.strftime("%d/%m/%Y"),
+                                                "QTD_M2": round(edit_comp * edit_alt * edit_qtd, 3) if edit_comp and edit_alt else 0.0
+                                            }
+                                            with st.spinner("Salvando alterações no Excel..."):
+                                                ok_main = dm.update_apontamento(selected_id, updates)
+                                                ok_rel = dm.update_apontamento_relations(selected_id, par_finais, ins_finais)
+                                                
+                                                if ok_main and ok_rel:
+                                                    st.success("✅ Apontamento, Paradas e Insumos atualizados com sucesso!")
+                                                    st.session_state.pop(f"edit_ap_{selected_id}", None)
+                                                    st.session_state.pop("df_ap_cache", None)
+                                                    st.rerun()
+                                                else:
+                                                    st.error("❌ Ocorreu um erro ao salvar no Excel. Verifique se o arquivo está aberto em outro programa.")
+                                        
+                        if btn_cancelar_edit:
+                            st.session_state.pop(f"edit_ap_{selected_id}", None)
+                            st.rerun()
+                
+                if st.session_state.get(f"conf_del_{selected_id}"):
+                    with st.container(border=True):
+                        st.warning(f"⚠️ **Atenção:** Você tem certeza de que deseja excluir permanentemente o apontamento ID #{selected_id} (Bloco {ap_row.get(col_bloco)})? Esta ação limpará o processo principal, bem como todas as paradas e insumos vinculados no Excel e não poderá ser desfeita.")
+                        c_conf1, c_conf2 = st.columns(2)
+                        with c_conf1:
+                            if st.button("🔴 Sim, confirmar exclusão", type="primary", use_container_width=True, key=f"c_btn_yes_del_{selected_id}"):
+                                with st.spinner("Excluindo registro do Excel..."):
+                                    if dm.delete_apontamento(selected_id):
+                                        st.success("✅ Apontamento excluído com sucesso!")
+                                        # Reseta caches de apontamento diário e da busca
+                                        st.session_state.pop("df_ap_cache", None)
+                                        st.session_state.pop(f"conf_del_{selected_id}", None)
+                                        # Recarrega a página
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Ocorreu um erro ao excluir o apontamento no Excel. Verifique se o arquivo está aberto em outro programa.")
+                        with c_conf2:
+                            if st.button("↩️ Cancelar", use_container_width=True, key=f"c_btn_no_del_{selected_id}"):
+                                st.session_state.pop(f"conf_del_{selected_id}", None)
+                                st.rerun()
+
+
 with tab_export:
     st.header("🖨️ Exportação para o Chão de Fábrica")
     st.markdown("Selecione as datas, filtre a máquina se quiser e clique em Gerar. O relatório aparecerá na tela pronto para você pressionar **Ctrl + P** e imprimir!")
