@@ -125,15 +125,12 @@ Caminho configurável via `config.json` → chave `"CHAPAS_FILE"`.
 ### Abas (tabs):
 | # | Tab | Propósito |
 |---|-----|-----------|
-| 1 | 🛠️ Adicionar / Editar Bloco | CRUD de blocos. Busca por número, edita todas as etapas do roteiro. |
-| 2 | 👁️ Base de Dados | Visualização completa da tabela de programação. Filtros e busca. |
-| 3 | 🗓️ Janela de Programações | Painel duplo: Fila de Trabalho (esquerda) + Painel de Alocação (direita). Agendamento em lote. |
-| 4 | ✅ Apontamento | Cruzamento Programação × Apontamento. Indicador de aderência. Confirmação de REALIZADOS. |
-| 5 | 🖨️ Exportação | Relatório HTML gerado em tela, pronto para Ctrl+P. |
-| 6 | 📈 Análises e Indicadores | Dashboard de performance (M², Chapas, Turnos, Máquinas e Refeito). |
-| 7 | ⚙️ Opções Gerais | Configuração de caminhos dos arquivos + mapeamento Processo×Máquina. |
+| 1 | ✅ Lançar Apontamento | Formulário de registro manual dinâmico de produção, paradas e insumos. |
+| 2 | 🔍 Consulta de Apontamentos | Ficha consolidada com histórico, busca de blocos/máquinas, edição e exclusão de apontamentos. |
+| 3 | 📈 Análises e Indicadores | Dashboard de performance, KPIs Lean, Pareto de paradas, custos e Relatório A3 A4 Landscape. |
+| 4 | ⚙️ Opções Gerais | Configuração de caminhos das bases de dados, roteiro padrão de processos, tipos de produção e cadastro de paradas. |
 
-### Padrão de gráficos empilhados (Aba 6)
+### Padrão de gráficos empilhados (Aba 3)
 Os gráficos de barras empilhadas (Normal/Refeito) usam **cálculo explícito de ponto médio** para centralizar labels:
 1. Calcula `_y0` (início) e `_y1` (fim) de cada segmento via acumulação no pandas
 2. `_mid = (_y0 + _y1) / 2` → posição Y do texto
