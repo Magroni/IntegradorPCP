@@ -1,5 +1,5 @@
 # AGENT_CONTEXT.md — Contexto do Projeto Apontamento & Indicadores Costa Granitos
-> **Atualizado em:** 2026-06-01 (v20)  
+> **Atualizado em:** 2026-06-03 (v21)  
 > **Propósito:** Arquivo de contexto para agentes de IA. Leia este arquivo antes de qualquer alteração no projeto.
 
 ---
@@ -152,7 +152,6 @@ _get_apontamento_file()  # Retorna o caminho atual do apontamento
 
 ### Leitura de Dados
 ```python
-get_data()                         # Lê aba PROGRAMAÇÃO → DataFrame principal (normaliza BLOCO)
 get_base_dados()                   # Lê aba BASE DE DADOS → mapeamento Processo×Setor
 get_historico_medias_entregues()   # Lê aba ENTREGUES → médias históricas de chapas/dia por máquina
 get_apontamentos_do_dia(date)      # Lê aba BD do Apontamento → DataFrame do dia filtrado
@@ -166,9 +165,6 @@ get_apontamentos_por_bloco(bloco_id)  # Histórico de apontamentos de um bloco e
 
 ### Escrita de Dados
 ```python
-add_record(record_dict)            # Adiciona nova linha na aba PROGRAMAÇÃO
-update_cell_by_row(idx, updates)   # Atualiza colunas específicas de uma linha pelo índice pandas
-salvar_edicao_bloco_excel(...)     # Salva edições completas de um bloco (insere/remove linhas)
 update_base_dados(df)              # Regrava a aba BASE DE DADOS com o df editado
 add_apontamento_batch(batch)       # Grava múltiplos apontamentos de uma vez (carrinho)
 add_paradas(paradas_list)          # Grava paradas na aba PARADAS
@@ -177,46 +173,36 @@ update_apontamento_relations(id, par, ins)  # Atualiza paradas/insumos de um apo
 update_apontamento(id, updates)    # Atualiza dados de cabeçalho do apontamento na aba DB
 ```
 
-### Validações de Negócio
-```python
-validar_sequencia_bloco(df, bloco, idx, nova_data)
-# Garante que o processo anterior do bloco já está agendado ou realizado
-# antes de permitir o agendamento do processo atual.
-# Retorna (True, "") ou (False, "mensagem de erro")
-```
-
 ### Normalização
 ```python
-normalize_bloco(bloco)  # Padroniza ID: remove .0, espaços, força upper. Usado em get_data() e confronto.
+normalize_bloco(bloco)  # Padroniza ID: remove .0, espaços, força upper. Usado no confronto.
 ```
 
 ---
 
 ## 6. Regras de Negócio Importantes
 
-1. **Sequência obrigatória:** Não se pode agendar o processo N sem que o processo N-1 tenha pelo menos uma data programada. (`validar_sequencia_bloco`)
+1. **Proteção de histórico:** Processos com `STATUS PROCESSO == "REALIZADO"` não podem ter suas datas editadas pela interface normal.
 
-2. **Proteção de histórico:** Processos com `STATUS PROCESSO == "REALIZADO"` não podem ter suas datas editadas pela interface normal.
+2. **Cálculo de Aderência:** `aderencia = (já_confirmados + encontrados_no_apontamento) / total_programados * 100`
 
-3. **Cálculo de Aderência:** `aderencia = (já_confirmados + encontrados_no_apontamento) / total_programados * 100`
+3. **Bloqueio Visual na Fila:** A coluna "Liberado?" na Aba 3 é **temporal** — ela compara a data do processo anterior com a **Data Alvo** selecionada no topo da tela. Um processo bloqueado pode aparecer como 🟢 Sim se a Data Alvo for futura o suficiente.
 
-4. **Bloqueio Visual na Fila:** A coluna "Liberado?" na Aba 3 é **temporal** — ela compara a data do processo anterior com a **Data Alvo** selecionada no topo da tela. Um processo bloqueado pode aparecer como 🟢 Sim se a Data Alvo for futura o suficiente.
+4. **Self-Healing de Máquinas (SETOR)**: Se a coluna `SETOR` estiver vazia no Excel (ex: fórmula não calculada), o `data_manager.py` autocompleta o valor cruzando o `PROCESSO` com a aba `BASE DE DADOS`. Isso garante que os filtros de máquina sempre funcionem.
 
-5. **Self-Healing de Máquinas (SETOR)**: Se a coluna `SETOR` estiver vazia no Excel (ex: fórmula não calculada), o `data_manager.py` autocompleta o valor cruzando o `PROCESSO` com a aba `BASE DE DADOS`. Isso garante que os filtros de máquina sempre funcionem.
+5. **Gestão de Programação (Remoção)**: É possível remover blocos de um dia específico apenas desmarcando-os na Janela de Programações e clicando em "Confirmar Alterações". O sistema limpa a data no Excel e volta o status para "NÃO REALIZADO".
 
-6. **Gestão de Programação (Remoção)**: É possível remover blocos de um dia específico apenas desmarcando-os na Janela de Programações e clicando em "Confirmar Alterações". O sistema limpa a data no Excel e volta o status para "NÃO REALIZADO".
+6. **% Refeito dinâmico (Aba 6)**: O cálculo de `% Refeito` usa a **métrica selecionada** (Chapas ou M²). Se "Chapas" está selecionado → refeito_ch / total_ch; se "M²" → refeito_m2 / total_m2. O label também muda: `% Refeito (Chapas)` ou `% Refeito (M²)`.
 
-7. **% Refeito dinâmico (Aba 6)**: O cálculo de `% Refeito` usa a **métrica selecionada** (Chapas ou M²). Se "Chapas" está selecionado → refeito_ch / total_ch; se "M²" → refeito_m2 / total_m2. O label também muda: `% Refeito (Chapas)` ou `% Refeito (M²)`.
+7. **Classificação Refeito/Normal**: Processos cujo nome contém `REPASSE`, `REFEITO` ou `REPROCESSO` são classificados como "Refeito". O setor produtivo (máquina/setor) **RETOQUE** e o seu processo associado **RETOCAR** são **ícluidos** normalmente nas análises por solicitação do usuário, permitindo o correto apontamento de materiais de processo novo.
 
-8. **Classificação Refeito/Normal**: Processos cujo nome contém `REPASSE`, `REFEITO` ou `REPROCESSO` são classificados como "Refeito". O setor produtivo (máquina/setor) **RETOQUE** e o seu processo associado **RETOCAR** são **incluídos** normalmente nas análises por solicitação do usuário, permitindo o correto apontamento de materiais de processo novo.
+8. **Data Fim e Dia de Produção (Aba 6)**: Para as análises e indicadores, a data e hora de finalização (`DIA_FIM` / `HORA_FIM`) são usadas como parâmetro de data. Se vazias, realiza fallback para `DIA_INICIO` / `HORA_INICIO`. Como o dia de produção começa às 07:00 e termina às 06:59 do dia subsequente (atendendo aos turnos de produção), qualquer processo finalizado antes de 07:00 AM é contabilizado na data de produção do dia anterior.
 
-9. **Data Fim e Dia de Produção (Aba 6)**: Para as análises e indicadores, a data e hora de finalização (`DIA_FIM` / `HORA_FIM`) são usadas como parâmetro de data. Se vazias, realiza fallback para `DIA_INICIO` / `HORA_INICIO`. Como o dia de produção começa às 07:00 e termina às 06:59 do dia subsequente (atendendo aos turnos de produção), qualquer processo finalizado antes de 07:00 AM é contabilizado na data de produção do dia anterior.
+9. **Blocos com Duplo Código (Equivalência)**: Suporte para blocos identificados por códigos compostos com barra `/` (ex: `4244/771418`). A comparação/busca flexível (`blocos_match`) é baseada na interseção das partes dos códigos. Assim, buscar por `4244` ou `771418` casará automaticamente com o bloco `4244/771418` em todo o sistema (Planilha de Blocos, Estoque de Chapas, Formulários de Edição, Fila de Cruzamento PCP/Apontamento e Consultas de Histórico).
 
-10. **Blocos com Duplo Código (Equivalência)**: Suporte para blocos identificados por códigos compostos com barra `/` (ex: `4244/771418`). A comparação/busca flexível (`blocos_match`) é baseada na interseção das partes dos códigos. Assim, buscar por `4244` ou `771418` casará automaticamente com o bloco `4244/771418` em todo o sistema (Planilha de Blocos, Estoque de Chapas, Formulários de Edição, Fila de Cruzamento PCP/Apontamento e Consultas de Histórico).
+10. **Filtro de Setores e Processos por Tipo de Produção (Aba 4)**: No formulário de apontamento, as listas de seleção dos campos "Máquina/Setor" e "2. Processo/Etapa" são totalmente dinâmicas. Ao selecionar o "Tipo de Processo", o campo "Máquina/Setor" filtra os setores permitidos e o campo "Processo/Etapa" filtra dinamicamente as etapas cujas máquinas pertencem àquele tipo de produção (resolvido por cruzamento de chaves entre a aba `TIPO_SETORES` e a aba `BASE DE DADOS`). Essas vinculações são governadas por tabelas editáveis na interface (Aba 7).
 
-11. **Filtro de Setores e Processos por Tipo de Produção (Aba 4)**: No formulário de apontamento, as listas de seleção dos campos "Máquina/Setor" e "2. Processo/Etapa" são totalmente dinâmicas. Ao selecionar o "Tipo de Processo", o campo "Máquina/Setor" filtra os setores permitidos e o campo "Processo/Etapa" filtra dinamicamente as etapas cujas máquinas pertencem àquele tipo de produção (resolvido por cruzamento de chaves entre a aba `TIPO_SETORES` e a aba `BASE DE DADOS`). Essas vinculações são governadas por tabelas editáveis na interface (Aba 7).
-
-12. **Padronização de Paradas e Farol Lean (Aba 6 & Aba 4)**: A lista oficial de motivos de parada e suas classificações (Farol Lean: `Operacional`, `Intervenção`, `Crítica`) é cadastrada na aba `TIPO_PARADAS` de `DB.xlsm` via Aba 7 (⚙️ Opções Gerais). Essa lista gera dinamicamente uma caixa de seleção suspensa (dropdown `SelectboxColumn`) no formulário de apontamento de paradas (Aba 4) para garantir a padronização na entrada dos dados. No painel de análises, o Pareto e os cartões Lean utilizam esse cadastro oficial, mantendo fallback de mapeamento (`BASE PARADAS` em `DB.xlsx`) e por palavra-chave para dados históricos.
+11. **Padronização de Paradas e Farol Lean (Aba 6 & Aba 4)**: A lista oficial de motivos de parada e suas classificações (Farol Lean: `Operacional`, `Intervenção`, `Crítica`) é cadastrada na aba `TIPO_PARADAS` de `DB.xlsm` via Aba 7 (⚙️ Opções Gerais). Essa lista gera dinamicamente uma caixa de seleção suspensa (dropdown `SelectboxColumn`) no formulário de apontamento de paradas (Aba 4) para garantir a padronização na entrada dos dados. No painel de análises, o Pareto e os cartões Lean utilizam esse cadastro oficial, mantendo fallback de mapeamento (`BASE PARADAS` em `DB.xlsx`) e por palavra-chave para dados históricos.
 
 ---
 
@@ -250,6 +236,7 @@ O arquivo `config.json` na raiz do projeto controla os caminhos:
 
 | Data | Alteração |
 |------|-----------| 
+| 2026-06-03 | **Limpeza de Código Morto (v21)**: Removidas todas as funções legadas da antiga funcionalidade de roteirização/sequenciamento de blocos do arquivo [data_manager.py](file:///z:/PCP/PROJETOS%20MARLON/ProgramarProd/data_manager.py) (`get_data`, `get_headers`, `validar_sequencia_bloco`, `add_record`, `add_records`, `update_cell_by_row`, `salvar_edicao_bloco_excel` e `get_historico_medias`). Atualizado o arquivo de contexto e as regras de negócio para refletir que o sistema opera em cima de apontamentos reais. |
 | 2026-06-01 | **Edição Completa de Apontamentos — Paradas & Insumos Integrados (v20)**: Expandido o formulário de edição de apontamento na Aba 5 (**🔍 Consulta de Apontamentos**) para suportar a edição total e granular de todos os pontos de um apontamento de produção. O formulário agora carrega, pré-popula e renderiza duas tabelas interativas (`st.data_editor`) com os **Insumos** e **Paradas de Máquina (Downtimes)** associados àquele ID de apontamento. Desenvolvida a função `dm.update_apontamento_relations` no backend para limpar fisicamente e reescrever (overwriting) os registros relacionados no Excel. Implementada a coerção estrita de tipos para string nas colunas de texto de paradas e insumos, e o tratamento robusto com `.reindex(columns=...)` para prevenir qualquer `KeyError` ou exceções de tipo de dados (`StreamlitAPIException`) por conta de colunas ausentes no banco. |
 | 2026-05-26 | **Modo Alto Contraste Unificado e Eliminação de Textos Cinza (v19)**: Implementado e unificado o Modo Alto Contraste nas duas principais interfaces de impressão do sistema: **Aba 5 (Exportação para o Chão de Fábrica)** e **Aba 6 (Relatório Formal A3/A4)**. O novo layout B&W de alto contraste elimina absolutamente todas as cores e tons de cinza do texto, forçando-os a preto puro (#000000) e os fundos a branco puro (#ffffff), prevenindo textos desbotados em impressoras monocromáticas. A tabela de totais de exportação foi redefinida para usar a elegante linha dupla de contabilidade clássica, garantindo ótima legibilidade e economia de toner no processo de impressão ou exportação para PDF. |
 | 2026-05-26 | **Ultra-compactação e Resiliência a Cabeçalhos/Rodapés (v18)**: Identificado que o overflow na exportação para PDF era causado pela opção **"Cabeçalhos e rodapés"** (Headers and Footers) ativada nas configurações da caixa de diálogo do Chrome (o que reduz a altura útil da folha em ~3cm). Para tornar o Relatório A3/A4 100% resiliente a essa configuração, compactei ainda mais a planilha: reduzi o padding das seções para `6px`, o gap entre colunas para `8px`, o tamanho das fontes das tabelas para `7.2px` e os paddings das células para `1.5px 3px` (cabeçalhos) e `1px 2px` (conteúdo), garantindo o enquadramento de **exatamente 1 página** mesmo com cabeçalhos/rodapés e margens padrões ativados no PDF. |
