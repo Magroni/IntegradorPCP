@@ -155,67 +155,7 @@ def parse_excel_date(val):
         return pd.NaT
 
 
-def get_data():
-    """Lê a aba de Programação e autocompleta o SETOR se estiver vazio usando a Base de Dados."""
-    try:
-        db_file = _get_db_file()
-        sheet_prog = _get_sheet("SHEET_PROGRAMACAO")
-        sheet_base = _get_sheet("SHEET_BASE_DADOS")
-        
-        # Lê os dados principais
-        df = pd.read_excel(db_file, sheet_name=sheet_prog, engine="openpyxl")
-        
-        # --- LÓGICA DE AUTOCOMPLETAR SETOR (Self-Healing) ---
-        try:
-            df_base = pd.read_excel(db_file, sheet_name=sheet_base, engine="openpyxl")
-            if "PROCESSO" in df_base.columns and "SETOR" in df_base.columns:
-                # Função interna para limpar nomes de processo (remove espaços, acentos zoados e força upper)
-                def clean_p(p):
-                    return str(p).strip().upper().replace("", "A") # Ajuste básico para encoding
-                
-                # Cria mapa normalizado: {PROCESSO_LIMPO: SETOR_VALOR}
-                df_base["P_LIMPO"] = df_base["PROCESSO"].apply(clean_p)
-                mapa_setor = df_base.dropna(subset=["P_LIMPO", "SETOR"]).drop_duplicates("P_LIMPO").set_index("P_LIMPO")["SETOR"].to_dict()
-                
-                # Identifica onde o SETOR está vazio ou NaN
-                mask_vazio = df["SETOR"].isna() | (df["SETOR"].astype(str).str.strip() == "") | (df["SETOR"].astype(str).str.lower() == "nan")
-                
-                # Preenche usando a versão limpa do processo atual
-                df.loc[mask_vazio, "SETOR"] = df.loc[mask_vazio, "PROCESSO"].apply(clean_p).map(mapa_setor)
-        except Exception as e_base:
-            print(f"Aviso: Não foi possível carregar o mapa de setores da Base de Dados: {e_base}")
-        # ----------------------------------------------------
 
-        # Normalização crítica de BLOCO para evitar bugs de identificação
-        if "BLOCO" in df.columns:
-            df["BLOCO"] = df["BLOCO"].apply(normalize_bloco)
-        return df
-    except Exception as e:
-        print(f"Erro ao carregar os dados: {e}")
-        return pd.DataFrame()
-
-
-def get_headers():
-    """Lê os cabeçalhos diretamente com openpyxl para ter um mapa de colunas exato."""
-    try:
-        wb = openpyxl.load_workbook(_get_db_file(), read_only=True, data_only=True)
-        ws = wb[_get_sheet("SHEET_PROGRAMACAO")]
-        headers = {}
-        for col in range(1, ws.max_column + 1):
-            val = ws.cell(row=1, column=col).value
-            if val:
-                # Normalização de cabeçalhos para evitar erros com 'VOLUME M²' e outros
-                h_name = str(val).strip()
-                headers[h_name] = col
-                # Fallback para Volume M2 sem o símbolo especial se necessário
-                if "VOLUME M" in h_name.upper():
-                    headers["VOLUME M²"] = col
-                    headers["VOLUME M2"] = col
-        wb.close()
-        return headers
-    except Exception as e:
-        print(f"Erro ao ler cabeçalhos: {e}")
-        return {}
 
 
 def get_base_dados():
@@ -242,34 +182,7 @@ def get_data_entregues():
 # CÁLCULOS
 # ---------------------------------------------------------------------------
 
-def get_historico_medias(df):
-    """
-    Calcula a média histórica de QTD. CHAPAS por dia para cada PROCESSO.
-    Considera apenas registros com STATUS PROCESSO == 'REALIZADO'.
-    """
-    try:
-        realizados = df[df["STATUS PROCESSO"] == "REALIZADO"].copy()
-        if realizados.empty:
-            return {}
 
-        def parse_data(val):
-            if pd.isna(val) or val == "": return pd.NaT
-            if isinstance(val, pd.Timestamp): return val
-            try: return pd.to_datetime(str(val), format="%d/%m/%Y")
-            except:
-                try: return pd.to_datetime(str(val))
-                except: return pd.NaT
-
-        realizados["DATA_REALIZADA_DT"] = realizados["DATA REALIZADA"].apply(parse_data)
-        realizados = realizados.dropna(subset=["DATA_REALIZADA_DT"])
-        realizados["QTD. CHAPAS"] = pd.to_numeric(realizados["QTD. CHAPAS"], errors="coerce").fillna(0)
-
-        producao_diaria = realizados.groupby(["PROCESSO", "DATA_REALIZADA_DT"])["QTD. CHAPAS"].sum().reset_index()
-        medias = producao_diaria.groupby("PROCESSO")["QTD. CHAPAS"].mean().to_dict()
-        return medias
-    except Exception as e:
-        print(f"Erro ao calcular médias: {e}")
-        return {}
 
 
 def get_historico_medias_entregues():
@@ -299,151 +212,14 @@ def get_historico_medias_entregues():
         return {}
 
 
-# ---------------------------------------------------------------------------
-# VALIDAÇÕES DE NEGÓCIO
-# ---------------------------------------------------------------------------
 
-def validar_sequencia_bloco(df, bloco_id, index_atual, nova_data_str):
-    """
-    Valida se a etapa anterior do bloco foi finalizada ou tem data agendada
-    anterior ou igual à nova_data.
-    """
-    try:
-        if pd.isna(bloco_id) or str(bloco_id).strip() == "":
-            return True, ""
-
-        df_bloco = df[df["BLOCO"].apply(lambda x: blocos_match(x, bloco_id))].copy()
-        df_bloco = df_bloco.sort_index()
-        indices_bloco = df_bloco.index.tolist()
-
-        if index_atual not in indices_bloco:
-            return True, ""
-
-        pos = indices_bloco.index(index_atual)
-
-        if pos == 0:
-            return True, ""
-
-        index_anterior = indices_bloco[pos - 1]
-        linha_anterior = df_bloco.loc[index_anterior]
-
-        status_anterior = str(linha_anterior.get("STATUS PROCESSO", ""))
-        if status_anterior == "REALIZADO":
-            return True, ""
-
-        data_anterior_str = linha_anterior.get("DATA", "")
-        if pd.isna(data_anterior_str) or str(data_anterior_str).strip() == "":
-            proc = linha_anterior.get("PROCESSO", "Desconhecido")
-            return False, f"O processo anterior '{proc}' não foi agendado nem concluído."
-
-        nova_data_dt = pd.to_datetime(nova_data_str, format="%d/%m/%Y")
-
-        try:
-            if isinstance(data_anterior_str, pd.Timestamp):
-                data_anterior_dt = data_anterior_str
-            else:
-                data_anterior_str_clean = str(data_anterior_str).strip()
-                if "/" in data_anterior_str_clean:
-                    data_anterior_dt = pd.to_datetime(data_anterior_str_clean, format="%d/%m/%Y")
-                else:
-                    data_anterior_dt = pd.to_datetime(data_anterior_str_clean)
-
-            if data_anterior_dt.date() > nova_data_dt.date():
-                proc = linha_anterior.get("PROCESSO", "Desconhecido")
-                return False, f"O processo anterior '{proc}' está agendado para {data_anterior_dt.strftime('%d/%m/%Y')}, que é depois da data escolhida."
-        except Exception:
-            pass  # Se não conseguir parsear, deixa passar
-
-        return True, ""
-    except Exception as e:
-        print(f"Erro ao validar bloco: {e}")
-        return False, "Erro interno na validação."
 
 
 # ---------------------------------------------------------------------------
 # ESCRITA DE DADOS
 # ---------------------------------------------------------------------------
 
-def add_record(record_dict):
-    """Adiciona um novo registro preservando o formato e macros."""
-    try:
-        wb = openpyxl.load_workbook(_get_db_file(), keep_vba=True)
-        ws = wb[_get_sheet("SHEET_PROGRAMACAO")]
 
-        next_row = ws.max_row + 1
-        for row in range(2, ws.max_row + 2):
-            if ws.cell(row=row, column=1).value is None:
-                next_row = row
-                break
-
-        headers = get_headers()
-
-        for key, value in record_dict.items():
-            if key in headers:
-                col_idx = headers[key]
-                ws.cell(row=next_row, column=col_idx, value=value)
-
-        wb.save(_get_db_file())
-        return True
-    except Exception as e:
-        print(f"Erro ao adicionar registro: {e}")
-        return False
-
-
-def add_records(records_list):
-    """Adiciona múltiplos registros de uma vez (útil para roteiros de blocos)."""
-    try:
-        wb = openpyxl.load_workbook(_get_db_file(), keep_vba=True)
-        ws = wb[_get_sheet("SHEET_PROGRAMACAO")]
-
-        next_row = ws.max_row + 1
-        for row in range(2, ws.max_row + 2):
-            if ws.cell(row=row, column=1).value is None:
-                next_row = row
-                break
-
-        headers = get_headers()
-
-        for record_dict in records_list:
-            for key, value in record_dict.items():
-                if key in headers:
-                    col_idx = headers[key]
-                    ws.cell(row=next_row, column=col_idx, value=value)
-            next_row += 1
-
-        wb.save(_get_db_file())
-        return True
-    except Exception as e:
-        print(f"Erro ao adicionar múltiplos registros: {e}")
-        return False
-
-
-def update_cell_by_row(df_index, updates_dict):
-    """
-    Atualiza células específicas baseando-se no índice do DataFrame.
-    O índice do DataFrame 0 corresponde à linha 2 do Excel (linha 1 = cabeçalho).
-    """
-    try:
-        wb = openpyxl.load_workbook(_get_db_file(), keep_vba=True)
-        ws = wb[_get_sheet("SHEET_PROGRAMACAO")]
-
-        excel_row = df_index + 2
-        headers = get_headers()
-
-        for col_name, new_value in updates_dict.items():
-            if col_name in headers:
-                col_idx = headers[col_name]
-                # Se for None, limpa a célula explicitamente
-                if new_value is None:
-                    ws.cell(row=excel_row, column=col_idx).value = None
-                else:
-                    ws.cell(row=excel_row, column=col_idx, value=new_value)
-
-        wb.save(_get_db_file())
-        return True
-    except Exception as e:
-        print(f"Erro ao atualizar célula: {e}")
-        return False
 
 
 def update_base_dados(df_novo):
@@ -663,64 +439,7 @@ def update_tipo_paradas(df_novo):
         return False
 
 
-def salvar_edicao_bloco_excel(bloco_id, material, demanda, qtd_chapas, vol_m2, roteiro_atual):
-    """
-    Sincroniza as edições de um bloco existente diretamente no Excel.
-    Reescreve as linhas nas posições originais, adiciona novas linhas logo abaixo
-    se o roteiro cresceu, ou deleta linhas finais se o roteiro diminuiu.
-    """
-    try:
-        wb = openpyxl.load_workbook(_get_db_file(), keep_vba=True)
-        ws = wb[_get_sheet("SHEET_PROGRAMACAO")]
-        headers = get_headers()
 
-        col_bloco = headers.get("BLOCO")
-        old_rows = []
-        for r in range(2, ws.max_row + 1):
-            if str(ws.cell(row=r, column=col_bloco).value).strip() == str(bloco_id).strip():
-                old_rows.append(r)
-
-        num_new = len(roteiro_atual)
-        num_old = len(old_rows)
-        last_written_row = max(old_rows) if old_rows else ws.max_row
-
-        for i, step in enumerate(roteiro_atual):
-            if i < num_old:
-                row_to_write = old_rows[i]
-            else:
-                insert_idx = last_written_row + 1
-                ws.insert_rows(insert_idx, 1)
-                row_to_write = insert_idx
-
-            last_written_row = row_to_write
-
-            if headers.get("BLOCO"): ws.cell(row=row_to_write, column=headers["BLOCO"], value=bloco_id)
-            if headers.get("MATERIAL"): ws.cell(row=row_to_write, column=headers["MATERIAL"], value=material)
-            if headers.get("DEMANDA"): ws.cell(row=row_to_write, column=headers["DEMANDA"], value=demanda)
-            if headers.get("QTD. CHAPAS"): ws.cell(row=row_to_write, column=headers["QTD. CHAPAS"], value=qtd_chapas)
-            if headers.get("VOLUME M²"): ws.cell(row=row_to_write, column=headers["VOLUME M²"], value=vol_m2)
-
-            if headers.get("PROCESSO"): ws.cell(row=row_to_write, column=headers["PROCESSO"], value=step.get("PROCESSO", ""))
-            if headers.get("SETOR"): ws.cell(row=row_to_write, column=headers["SETOR"], value=step.get("SETOR", ""))
-            if headers.get("OBSERVAÇÃO DE PRODUÇÃO"): ws.cell(row=row_to_write, column=headers["OBSERVAÇÃO DE PRODUÇÃO"], value=step.get("OBSERVACAO", ""))
-
-            data_str = step.get("DATA", "")
-            if data_str and headers.get("DATA"): ws.cell(row=row_to_write, column=headers["DATA"], value=data_str)
-
-            data_realizada = step.get("DATA REALIZADA", "")
-            if data_realizada and headers.get("DATA REALIZADA"): ws.cell(row=row_to_write, column=headers["DATA REALIZADA"], value=data_realizada)
-
-        # Deletar as sobras físicas, de baixo para cima
-        if num_old > num_new:
-            sobras = old_rows[num_new:]
-            for r in reversed(sobras):
-                ws.delete_rows(r, 1)
-
-        wb.save(_get_db_file())
-        return True
-    except Exception as e:
-        print(f"Erro ao salvar edição do bloco no excel: {e}")
-        return False
 
 
 # ---------------------------------------------------------------------------
