@@ -942,6 +942,11 @@ with tab_consulta:
         col_proc = "PROCESSO" if "PROCESSO" in df_all_ap.columns else "PROCESSO_APONTADO"
         col_operador = "OPERADOR" if "OPERADOR" in df_all_ap.columns else "OPERADOR"
         col_chapas = "QTD_CHAPAS" if "QTD_CHAPAS" in df_all_ap.columns else "QTD_CH"
+        col_m2 = "QTDM2"
+        for alias in mapping.get("QTD_M2", []):
+            if alias.upper() in df_all_ap.columns:
+                col_m2 = alias.upper()
+                break
 
         # Converte a coluna de data de forma robusta
         df_all_ap["DATA_FILTRO"] = df_all_ap[col_data].apply(dm.parse_excel_date)
@@ -959,12 +964,12 @@ with tab_consulta:
                 filtro_bloco = st.text_input("Nº Bloco", placeholder="Ex: 3706", key="c_filtro_bloco_val")
                 
             with c_f2:
-                unique_setores = ["Todos"] + sorted(list(str(s).strip() for s in df_all_ap[col_setor].dropna().unique() if str(s).strip()))
-                filtro_setor = st.selectbox("Máquina/Setor", unique_setores, key="c_filtro_setor_val")
+                unique_setores = sorted(list(str(s).strip() for s in df_all_ap[col_setor].dropna().unique() if str(s).strip()))
+                filtro_setor = st.multiselect("Máquina/Setor", unique_setores, placeholder="Todos os setores", key="c_filtro_setor_val")
                 
             with c_f3:
-                unique_processos = ["Todos"] + sorted(list(str(p).strip() for p in df_all_ap[col_proc].dropna().unique() if str(p).strip()))
-                filtro_processo = st.selectbox("Processo/Etapa", unique_processos, key="c_filtro_proc_val")
+                unique_processos = sorted(list(str(p).strip() for p in df_all_ap[col_proc].dropna().unique() if str(p).strip()))
+                filtro_processo = st.multiselect("Processo/Etapa", unique_processos, placeholder="Todos os processos", key="c_filtro_proc_val")
                 
             with c_f4:
                 filtro_operador = st.text_input("Operador (Busca parcial)", placeholder="Ex: MARLON", key="c_filtro_op_val")
@@ -1006,11 +1011,11 @@ with tab_consulta:
         if filtro_bloco:
             df_filtrado = df_filtrado[df_filtrado[col_bloco].apply(lambda x: dm.blocos_match(x, filtro_bloco))]
             
-        if filtro_setor != "Todos":
-            df_filtrado = df_filtrado[df_filtrado[col_setor] == filtro_setor]
+        if filtro_setor:
+            df_filtrado = df_filtrado[df_filtrado[col_setor].astype(str).str.strip().isin(filtro_setor)]
             
-        if filtro_processo != "Todos":
-            df_filtrado = df_filtrado[df_filtrado[col_proc] == filtro_processo]
+        if filtro_processo:
+            df_filtrado = df_filtrado[df_filtrado[col_proc].astype(str).str.strip().isin(filtro_processo)]
             
         if filtro_operador:
             df_filtrado = df_filtrado[df_filtrado[col_operador].astype(str).str.contains(filtro_operador, case=False, na=False)]
@@ -1034,6 +1039,19 @@ with tab_consulta:
         if df_filtrado.empty:
             st.info("Nenhum apontamento corresponde aos filtros selecionados.")
         else:
+            # --- CÁLCULO DOS SUBTOTAIS (ATUALIZADOS CONFORME O FILTRO) ---
+            total_ap = len(df_filtrado)
+            total_chapas = int(pd.to_numeric(df_filtrado[col_chapas], errors="coerce").fillna(0).sum())
+            total_m2 = pd.to_numeric(df_filtrado[col_m2], errors="coerce").fillna(0.0).sum()
+            
+            c_sub1, c_sub2, c_sub3 = st.columns(3)
+            with c_sub1:
+                st.metric("Total Apontamentos", f"{total_ap}")
+            with c_sub2:
+                st.metric("Total Chapas", f"{total_chapas:,}".replace(",", "."))
+            with c_sub3:
+                st.metric("Total Metragem (M²)", f"{total_m2:,.3f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                
             # Prepara dados para exibição amigável
             df_display = df_filtrado.copy()
             df_display["DATA_FORMATTED"] = df_display["DATA_FILTRO"].apply(lambda d: d.strftime("%d/%m/%Y") if pd.notna(d) else "-")
@@ -1045,12 +1063,13 @@ with tab_consulta:
             df_display["ID_SHOW"] = df_display["ID"].astype(str)
             df_display["BLOCO_SHOW"] = df_display[col_bloco].astype(str)
             df_display["CHAPAS_SHOW"] = df_display[col_chapas].apply(lambda x: int(float(x)) if pd.notna(x) and str(x).strip() != "" else 0)
+            df_display["M2_SHOW"] = pd.to_numeric(df_display[col_m2], errors="coerce").fillna(0.0).round(3)
             
-            # Colunas limpas para a tabela (adicionada a coluna de data de produção)
-            cols_show = ["ID_SHOW", "DATA_FORMATTED", "DATA_PROD_FORMATTED", "BLOCO_SHOW", "MATERIAL", col_proc, col_setor, "CHAPAS_SHOW", col_operador]
+            # Colunas limpas para a tabela (adicionadas as colunas de data de produção e metragem M²)
+            cols_show = ["ID_SHOW", "DATA_FORMATTED", "DATA_PROD_FORMATTED", "BLOCO_SHOW", "MATERIAL", col_proc, col_setor, "CHAPAS_SHOW", "M2_SHOW", col_operador]
             df_display_clean = df_display[[c for c in cols_show if c in df_display.columns]].copy()
             df_display_clean.columns = [
-                "ID", "Data Registro", "Data Produção", "Bloco", "Material", "Processo", "Máquina/Setor", "Qtd. Chapas", "Operador"
+                "ID", "Data Registro", "Data Produção", "Bloco", "Material", "Processo", "Máquina/Setor", "Qtd. Chapas", "Qtd. M²", "Operador"
             ][:len(df_display_clean.columns)]
             
             # Adiciona nota amigável instruindo o usuário a clicar na linha
@@ -1117,6 +1136,37 @@ with tab_consulta:
                     unsafe_allow_html=True
                 )
                 
+                import datetime as dt_module
+
+                def format_time_display(t_val):
+                    if pd.isna(t_val) or t_val is None:
+                        return "-"
+                    if isinstance(t_val, dt_module.time):
+                        return t_val.strftime("%H:%M")
+                    if isinstance(t_val, dt_module.datetime):
+                        return t_val.strftime("%H:%M")
+                    s = str(t_val).strip()
+                    if not s or s.lower() == "nan":
+                        return "-"
+                    if len(s) >= 5 and ":" in s:
+                        parts = s.split(":")
+                        try:
+                            return f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+                        except:
+                            return s
+                    return s
+
+                raw_d_ini = ap_row.get("DIA_INICIO") or ap_row.get("DATA_INICIO") or ap_row.get("DATA_REG")
+                p_d_ini = dm.parse_excel_date(raw_d_ini)
+                d_ini_str = p_d_ini.strftime("%d/%m/%Y") if pd.notna(p_d_ini) else "-"
+                
+                raw_d_fim = ap_row.get("DIA_FIM") or ap_row.get("DATA_FIM") or raw_d_ini
+                p_d_fim = dm.parse_excel_date(raw_d_fim)
+                d_fim_str = p_d_fim.strftime("%d/%m/%Y") if pd.notna(p_d_fim) else "-"
+                
+                h_ini_str = format_time_display(ap_row.get("HORA_INICIO"))
+                h_fim_str = format_time_display(ap_row.get("HORA_FIM"))
+
                 # Duas colunas para dados principais
                 col_res1, col_res2 = st.columns(2)
                 
@@ -1140,7 +1190,8 @@ with tab_consulta:
                         st.write(f"**Processo / Etapa:** {ap_row.get(col_proc, '-')}")
                         st.write(f"**Turno:** {ap_row.get('TURNO', '-')}")
                         st.write(f"**Quantidade de Chapas:** {int(float(ap_row.get(col_chapas, 0))) if pd.notna(ap_row.get(col_chapas)) else 0} chapas")
-                        st.write(f"**Horário:** {ap_row.get('HORA_INICIO', '-')} às {ap_row.get('HORA_FIM', '-')}")
+                        st.write(f"**Data / Hora Início:** {d_ini_str} às {h_ini_str}")
+                        st.write(f"**Data / Hora Fim:** {d_fim_str} às {h_fim_str}")
                         st.write(f"**Tempo de Processo:** {ap_row.get('TEMPO_PROCESSO', '-')} h/min")
                 
                 st.write("")
