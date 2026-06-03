@@ -765,8 +765,13 @@ def get_mapeamento_paradas():
         file_path = _get_apontamento_file()
         sheet_name = get_config().get("SHEET_AP_BASE_PARADAS", "BASE PARADAS")
         
+        # Verifica se a aba existe no arquivo Excel para evitar erros e warnings desnecessários
+        xl = pd.ExcelFile(file_path, engine="openpyxl")
+        if sheet_name not in xl.sheet_names:
+            return {}
+            
         # Lê a planilha de mapeamento de paradas
-        df = pd.read_excel(file_path, sheet_name=sheet_name, engine="openpyxl")
+        df = pd.read_excel(xl, sheet_name=sheet_name)
         df.columns = [str(c).strip().upper() for c in df.columns]
         
         col_completo = next((c for c in ["MOTIVO_COMPLETO", "MOTIVO", "DESCRICAO"] if c in df.columns), df.columns[0])

@@ -38,6 +38,51 @@ def format_data_view(d_val):
     if dt: return dt.strftime("%d/%m/%Y")
     return str(d_val)
 
+def get_edited_df(df_base, state_key):
+    """
+    Reconstrói de forma robusta o DataFrame de um st.data_editor a partir dos estados
+    brutos de alteração da Session State (edited_rows, added_rows, deleted_rows).
+    Isso é necessário para contornar o bug crônico do Streamlit onde st.data_editor
+    dentro de st.form retorna o DataFrame antigo sem as edições na submissão do formulário.
+    """
+    if state_key not in st.session_state:
+        return df_base
+        
+    editor_state = st.session_state[state_key]
+    df_edited = df_base.copy()
+    
+    # 1. Aplica edições em linhas existentes
+    edited_rows = editor_state.get("edited_rows", {})
+    for idx_str, row_changes in edited_rows.items():
+        try:
+            idx = int(idx_str)
+            if idx in df_edited.index:
+                for col, val in row_changes.items():
+                    df_edited.at[idx, col] = val
+        except Exception as e:
+            print(f"Erro ao aplicar edição no índice {idx_str}: {e}")
+            
+    # 2. Adiciona novas linhas
+    added_rows = editor_state.get("added_rows", [])
+    if added_rows:
+        new_rows = []
+        for row in added_rows:
+            new_rows.append(row)
+        if new_rows:
+            new_df = pd.DataFrame(new_rows)
+            df_edited = pd.concat([df_edited, new_df], ignore_index=True)
+            
+    # 3. Deleta linhas removidas
+    deleted_rows = editor_state.get("deleted_rows", [])
+    if deleted_rows:
+        try:
+            indices_to_drop = [int(idx) for idx in deleted_rows]
+            df_edited = df_edited.drop(index=[idx for idx in indices_to_drop if idx in df_edited.index])
+        except Exception as e:
+            print(f"Erro ao deletar linhas no editor: {e}")
+            
+    return df_edited.reset_index(drop=True)
+
 st.set_page_config(page_title="Apontamento & Indicadores — Costa Granitos", layout="wide", page_icon="📊")
 
 st.title("📊 Gestor de Apontamentos & Indicadores de Produção")
@@ -240,7 +285,7 @@ def render_opcoes_gerais(cfg_atual, df_base):
 
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
-        if st.button("💾 Salvar Configurações", type="primary", use_container_width=True, key="btn_salvar_cfg"):
+        if st.button("💾 Salvar Configurações", type="primary", width="stretch", key="btn_salvar_cfg"):
             alertas_path = []
             if not _osc.path.exists(novo_db):
                 alertas_path.append(f"⚠️ Arquivo de Programação não encontrado localmente: `{novo_db}`")
@@ -283,7 +328,7 @@ def render_opcoes_gerais(cfg_atual, df_base):
                 st.error("Erro ao salvar o arquivo de configuração.")
 
     with col_btn2:
-        if st.button("↩️ Restaurar Padrões", use_container_width=True, key="btn_restaurar_cfg"):
+        if st.button("↩️ Restaurar Padrões", width="stretch", key="btn_restaurar_cfg"):
             if dm.save_config(dm._DEFAULT_CONFIG):
                 # Limpa as variáveis temporárias de sessão para que o st.rerun() recarregue os padrões salvos
                 for key in ["tmp_db_path", "tmp_ap_path", "tmp_bl_path", "tmp_ch_path",
@@ -311,7 +356,7 @@ def render_opcoes_gerais(cfg_atual, df_base):
     editado = st.data_editor(
         df_edit,
         num_rows="dynamic",
-        use_container_width=True,
+        width="stretch",
         column_config={
             "PROCESSO": st.column_config.TextColumn("Nome do Processo", required=True),
             "SETOR": st.column_config.TextColumn("Setor Produtivo (Máquina) Padrão", required=True)
@@ -343,7 +388,7 @@ def render_opcoes_gerais(cfg_atual, df_base):
     editado_ts = st.data_editor(
         df_ts_edit,
         num_rows="dynamic",
-        use_container_width=True,
+        width="stretch",
         column_config={
             "TIPO_PROCESSO": st.column_config.TextColumn("Tipo de Processo", required=True),
             "SETORES": st.column_config.TextColumn("Setores Permitidos (separados por vírgula)", required=True)
@@ -377,7 +422,7 @@ def render_opcoes_gerais(cfg_atual, df_base):
     editado_tp = st.data_editor(
         df_tp_edit,
         num_rows="dynamic",
-        use_container_width=True,
+        width="stretch",
         column_config={
             "MOTIVO": st.column_config.TextColumn("Motivo da Parada Padronizado", required=True),
             "TIPO_PARADA": st.column_config.SelectboxColumn("Farol Lean (Tipo)", options=["Operacional", "Intervenção", "Crítica"], required=True)
@@ -485,7 +530,7 @@ with tab_apontamento:
                 with st.spinner("Carregando histórico..."):
                     historico = dm.get_apontamentos_por_bloco(f_bloco)
                     if not historico.empty:
-                        st.dataframe(historico, use_container_width=True, hide_index=True)
+                        st.dataframe(historico, width="stretch", hide_index=True)
                     else:
                         st.info("Nenhum apontamento anterior encontrado para este bloco.")
 
@@ -537,7 +582,7 @@ with tab_apontamento:
                                 with c_m3: st.number_input("Qtd KG (Catalisador)", value=f_qtd_endur_calc, disabled=True)
                                 with c_m4: f_sec = st.number_input("Tempo Secagem (h)", min_value=0, value=24)
                             
-                            st.form_submit_button("🔄 RECALCULAR / CONFIRMAR PROPORÇÃO", use_container_width=True)
+                            st.form_submit_button("🔄 RECALCULAR / CONFIRMAR PROPORÇÃO", width="stretch")
                             if not f_prop or f_prop <= 0:
                                 st.info("ℹ️ Digite a proporção e pressione ENTER ou o botão acima para calcular.")
                         st.markdown("---")
@@ -600,7 +645,7 @@ with tab_apontamento:
                                 elif f_tipo == "Levigamento / Polimento": rows_add = [{"TIPO": "ABRASIVO", "DESCRICAO": "", "QTD": 0.0, "UNID": "UNID"}]
                                 else: rows_add = [{"TIPO": "OUTROS", "DESCRICAO": "", "QTD": 0.0, "UNID": "UNID"}]
                                 st.session_state["df_ins_add"] = pd.DataFrame(rows_add)
-                            editado_ins_add = st.data_editor(st.session_state["df_ins_add"], num_rows="dynamic", use_container_width=True, key="editor_ins_final")
+                            editado_ins_add = st.data_editor(st.session_state["df_ins_add"], num_rows="dynamic", width="stretch", key="editor_ins_final")
                         
                         with c_i2:
                             st.caption("⏹️ Paradas de Máquina")
@@ -642,15 +687,19 @@ with tab_apontamento:
                             editado_paradas = st.data_editor(
                                 st.session_state["df_paradas_state"], 
                                 num_rows="dynamic", 
-                                use_container_width=True, 
+                                width="stretch", 
                                 column_config=col_conf_paradas,
                                 key="editor_paradas_final"
                             )
 
-                        btn_carrinho = st.form_submit_button("🛒 ADICIONAR AO CARRINHO", use_container_width=True, type="primary")
+                        btn_carrinho = st.form_submit_button("🛒 ADICIONAR AO CARRINHO", width="stretch", type="primary")
 
 
                     if btn_carrinho:
+                        # Reconstroi os dataframes dos editores a partir do session state para evitar o bug do st.form
+                        editado_ins_add = get_edited_df(st.session_state["df_ins_add"], "editor_ins_final")
+                        editado_paradas = get_edited_df(st.session_state["df_paradas_state"], "editor_paradas_final")
+                        
                         # Validação e lógica de salvamento (mesma lógica do callback anterior)
                         # ... processamento dos dados lidos dos widgets acima ...
                         def parse_time_local(t_str):
@@ -829,18 +878,18 @@ with tab_apontamento:
                             format_func=lambda i: f"{i+1}. Bloco {st.session_state['carrinho_ap'][i][0]['BLOCO_RAW']} - {st.session_state['carrinho_ap'][i][0]['PROCESSO_APONTADO']}",
                             key="select_item_remove_cart"
                         )
-                        if st.button("Confirmar Remoção do Item Selecionado", use_container_width=True, key="btn_remove_item_cart"):
+                        if st.button("Confirmar Remoção do Item Selecionado", width="stretch", key="btn_remove_item_cart"):
                             st.session_state["carrinho_ap"].pop(item_to_remove)
                             st.success("Item removido do carrinho com sucesso!")
                             st.rerun()
                     
                     c_b1, c_b2 = st.columns(2)
                     with c_b1:
-                        if st.button("🗑️ Limpar Carrinho", use_container_width=True):
+                        if st.button("🗑️ Limpar Carrinho", width="stretch"):
                             st.session_state["carrinho_ap"] = []
                             st.rerun()
                     with c_b2:
-                        if st.button("🚀 FINALIZAR E SALVAR TUDO", type="primary", use_container_width=True):
+                        if st.button("🚀 FINALIZAR E SALVAR TUDO", type="primary", width="stretch"):
                             with st.spinner("Gravando no Excel..."):
                                 next_id = dm.get_next_apontamento_id()
                                 batch = []
@@ -944,7 +993,7 @@ with tab_consulta:
             with c_clear:
                 st.write(""); st.write("")
                 # Botão para resetar as datas de pesquisa
-                if st.button("Resetar Datas", use_container_width=True, key="c_btn_reset_dates"):
+                if st.button("Resetar Datas", width="stretch", key="c_btn_reset_dates"):
                     # Remove o cache de chave antigo se houver
                     st.session_state.pop(date_widget_key, None)
                     # Incrementa o contador para alterar a chave do date_input e forçar remontagem limpa no React
@@ -1010,7 +1059,7 @@ with tab_consulta:
             # Instancia o dataframe com seleção habilitada
             selection_event = st.dataframe(
                 df_display_clean,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 on_select="rerun",
                 selection_mode="single-row"
@@ -1108,7 +1157,7 @@ with tab_consulta:
                         cols_p = ["MOTIVO", "DATA_INICIO", "HORA_INICIO", "DATA_FIM", "HORA_FIM", "TEMPO"]
                         df_p_clean = df_p_clean[[c for c in cols_p if c in df_p_clean.columns]].copy()
                         df_p_clean.columns = ["Motivo", "Data Ini", "Hora Ini", "Data Fim", "Hora Fim", "Tempo"]
-                        st.dataframe(df_p_clean, use_container_width=True, hide_index=True)
+                        st.dataframe(df_p_clean, width="stretch", hide_index=True)
                         
                         # Totalização
                         st.success(f"**Total de paradas:** {len(df_p_clean)}")
@@ -1122,7 +1171,7 @@ with tab_consulta:
                         cols_i = ["TIPO_INSUMO", "DESCRICAO", "QUANTIDADE", "UNIDADE", "TEMPO_SECAGEM"]
                         df_i_clean = df_i_clean[[c for c in cols_i if c in df_i_clean.columns]].copy()
                         df_i_clean.columns = ["Tipo Insumo", "Descrição", "Qtd", "Unidade", "Secagem (h)"]
-                        st.dataframe(df_i_clean, use_container_width=True, hide_index=True)
+                        st.dataframe(df_i_clean, width="stretch", hide_index=True)
                         
                         st.success(f"**Total de insumos:** {len(df_i_clean)}")
 
@@ -1133,9 +1182,9 @@ with tab_consulta:
                 
                 c_del1, c_del2, c_del3 = st.columns([1.5, 1.5, 2])
                 with c_del1:
-                    btn_excluir = st.button("🗑️ EXCLUIR ESTE APONTAMENTO", type="primary", use_container_width=True, key=f"c_btn_excluir_{selected_id}")
+                    btn_excluir = st.button("🗑️ EXCLUIR ESTE APONTAMENTO", type="primary", width="stretch", key=f"c_btn_excluir_{selected_id}")
                 with c_del2:
-                    btn_editar = st.button("📝 EDITAR APONTAMENTO", use_container_width=True, key=f"c_btn_editar_{selected_id}")
+                    btn_editar = st.button("📝 EDITAR APONTAMENTO", width="stretch", key=f"c_btn_editar_{selected_id}")
                 
                 if btn_excluir:
                     st.session_state[f"conf_del_{selected_id}"] = True
@@ -1243,7 +1292,7 @@ with tab_consulta:
                             edit_df_insumos = st.data_editor(
                                 df_i_edit,
                                 num_rows="dynamic",
-                                use_container_width=True,
+                                width="stretch",
                                 column_config={
                                     "TIPO_INSUMO": st.column_config.SelectboxColumn("Tipo Insumo*", options=["RESINA", "ENDURECEDOR", "MANTA", "ABRASIVO", "OUTROS"], required=True),
                                     "DESCRICAO": st.column_config.TextColumn("Descrição*", required=True),
@@ -1273,16 +1322,20 @@ with tab_consulta:
                             edit_df_paradas = st.data_editor(
                                 df_p_edit,
                                 num_rows="dynamic",
-                                use_container_width=True,
+                                width="stretch",
                                 column_config=col_conf_paradas_edit,
                                 key=f"editor_edit_paradas_{selected_id}"
                             )
 
                         c_ebtn1, c_ebtn2 = st.columns(2)
-                        with c_ebtn1: btn_salvar_edit = st.form_submit_button("💾 Salvar Alterações", type="primary", use_container_width=True)
-                        with c_ebtn2: btn_cancelar_edit = st.form_submit_button("↩️ Cancelar Edição", use_container_width=True)
+                        with c_ebtn1: btn_salvar_edit = st.form_submit_button("💾 Salvar Alterações", type="primary", width="stretch")
+                        with c_ebtn2: btn_cancelar_edit = st.form_submit_button("↩️ Cancelar Edição", width="stretch")
                             
                         if btn_salvar_edit:
+                            # Reconstroi os dataframes dos editores a partir do session state para evitar o bug do st.form
+                            edit_df_insumos = get_edited_df(df_i_edit, f"editor_edit_insumos_{selected_id}")
+                            edit_df_paradas = get_edited_df(df_p_edit, f"editor_edit_paradas_{selected_id}")
+                            
                             if not edit_proc or not edit_setor or not edit_material or edit_qtd is None or not edit_dia_ini or not edit_dia_fim:
                                 st.error("❌ Preencha todos os campos obrigatórios (*) com valores válidos.")
                             else:
@@ -1431,7 +1484,7 @@ with tab_consulta:
                         st.warning(f"⚠️ **Atenção:** Você tem certeza de que deseja excluir permanentemente o apontamento ID #{selected_id} (Bloco {ap_row.get(col_bloco)})? Esta ação limpará o processo principal, bem como todas as paradas e insumos vinculados no Excel e não poderá ser desfeita.")
                         c_conf1, c_conf2 = st.columns(2)
                         with c_conf1:
-                            if st.button("🔴 Sim, confirmar exclusão", type="primary", use_container_width=True, key=f"c_btn_yes_del_{selected_id}"):
+                            if st.button("🔴 Sim, confirmar exclusão", type="primary", width="stretch", key=f"c_btn_yes_del_{selected_id}"):
                                 with st.spinner("Excluindo registro do Excel..."):
                                     if dm.delete_apontamento(selected_id):
                                         st.success("✅ Apontamento excluído com sucesso!")
@@ -1443,7 +1496,7 @@ with tab_consulta:
                                     else:
                                         st.error("❌ Ocorreu um erro ao excluir o apontamento no Excel. Verifique se o arquivo está aberto em outro programa.")
                         with c_conf2:
-                            if st.button("↩️ Cancelar", use_container_width=True, key=f"c_btn_no_del_{selected_id}"):
+                            if st.button("↩️ Cancelar", width="stretch", key=f"c_btn_no_del_{selected_id}"):
                                 st.session_state.pop(f"conf_del_{selected_id}", None)
                                 st.rerun()
 
@@ -1591,7 +1644,7 @@ with tab_analises:
             df_final.index = [d.strftime('%d/%m/%Y') for d in df_final.index]
             
             # Tabela em cima ocupando a largura total para visão rápida
-            st.dataframe(df_final, use_container_width=True)
+            st.dataframe(df_final, width="stretch")
             st.caption("📌 Legenda: **Normal (Refeita)**.")
             
             # Gráfico embaixo ocupando a largura total para detalhamento visual
@@ -1646,7 +1699,7 @@ with tab_analises:
                 column=alt.Column('DIA:N', title='Dia de Produção', sort=alt.SortOrder('ascending'))
             ).configure_view(stroke=None).configure_axis(labelFontSize=13, titleFontSize=15)
             
-            st.altair_chart(faceted_chart, use_container_width=True)
+            st.altair_chart(faceted_chart, width="stretch")
             
         except Exception as e:
             st.info(f"Aguardando dados suficientes. (Erro: {e})")
@@ -1700,7 +1753,7 @@ with tab_analises:
                 y=alt.Y(f'sum({col_valor}):Q'),
                 text=alt.Text(f'sum({col_valor}):Q', format=fmt_e)
             )
-            st.altair_chart((bars_evol + text_evol + totals_evol).properties(height=450), use_container_width=True)
+            st.altair_chart((bars_evol + text_evol + totals_evol).properties(height=450), width="stretch")
             
         with c_gr2:
             st.subheader(f"🌙 Produtividade por Turno ({metrica_board})")
@@ -1741,7 +1794,7 @@ with tab_analises:
                 y=alt.Y(f'sum({col_valor}):Q'),
                 text=alt.Text(f'sum({col_valor}):Q', format='.0f' if metrica_board == 'Chapas' else '.1f')
             )
-            st.altair_chart((bars_turno + text_turno + totals_turno).properties(height=450), use_container_width=True)
+            st.altair_chart((bars_turno + text_turno + totals_turno).properties(height=450), width="stretch")
 
         # ----------------- SEÇÃO: ANÁLISE DE PARADAS E OCIOSIDADE -----------------
         st.write("---")
@@ -1930,7 +1983,7 @@ with tab_analises:
                                     "Custo Hora (R$/h)": st.column_config.NumberColumn("Custo Hora (R$)", min_value=0.0, step=10.0, format="R$ %.2f")
                                 },
                                 hide_index=True,
-                                use_container_width=True,
+                                width="stretch",
                                 key="data_editor_custos_setores"
                             )
                             
@@ -2088,7 +2141,7 @@ with tab_analises:
                                 )
                                 
                                 chart_p_motivo = (bars_motivo + text_motivo).properties(height=320)
-                                st.altair_chart(chart_p_motivo, use_container_width=True)
+                                st.altair_chart(chart_p_motivo, width="stretch")
                                 
                             with col_g2:
                                 st.markdown("**🏭 Tempo de Parada por Máquina/Setor (Horas)**")
@@ -2124,17 +2177,26 @@ with tab_analises:
                                 )
                                 
                                 chart_p_setor = (bars_setor + text_setor).properties(height=320)
-                                st.altair_chart(chart_p_setor, use_container_width=True)
+                                st.altair_chart(chart_p_setor, width="stretch")
                                 
                                 # Tabela Detalhada Expansível
                                 with st.expander("📋 Visualizar Ocorrências de Paradas Detalhadas"):
                                     st.markdown("Lista completa de todas as ocorrências de paradas com base nos filtros locais ativos (ordenadas da maior duração para a menor):")
                                     df_view_paradas = df_paradas_filtrado.sort_values("TEMPO", ascending=False).copy()
                                     df_view_paradas["TEMPO_HHMM"] = df_view_paradas["TEMPO"].apply(format_to_hhmm)
+                                    
+                                    # Conversão robusta de tipo para evitar ArrowTypeError no st.dataframe do Streamlit
+                                    if "DATA_INICIO" in df_view_paradas.columns:
+                                        df_view_paradas["DATA_INICIO"] = pd.to_datetime(df_view_paradas["DATA_INICIO"], errors="coerce", dayfirst=True).dt.strftime("%d/%m/%Y").fillna("")
+                                    if "HORA_INICIO" in df_view_paradas.columns:
+                                        df_view_paradas["HORA_INICIO"] = df_view_paradas["HORA_INICIO"].apply(lambda t: t.strftime("%H:%M") if hasattr(t, "strftime") else str(t).replace("nan", "").strip() if pd.notna(t) else "")
+                                    if "HORA_FIM" in df_view_paradas.columns:
+                                        df_view_paradas["HORA_FIM"] = df_view_paradas["HORA_FIM"].apply(lambda t: t.strftime("%H:%M") if hasattr(t, "strftime") else str(t).replace("nan", "").strip() if pd.notna(t) else "")
+                                        
                                     df_view_paradas = df_view_paradas[["ID_APONTAMENTO", c_st, "MOTIVO", "DATA_INICIO", "HORA_INICIO", "HORA_FIM", "TEMPO_HHMM", "PREJUIZO"]]
                                     df_view_paradas.columns = ["ID Apontamento", "Máquina", "Motivo", "Data", "Hora Início", "Hora Fim", "Duração (HH:MM)", "Prejuízo Estimado (R$)"]
                                     df_view_paradas["Prejuízo Estimado (R$)"] = df_view_paradas["Prejuízo Estimado (R$)"].apply(lambda v: f"R$ {v:,.2f}")
-                                    st.dataframe(df_view_paradas, use_container_width=True, hide_index=True)
+                                    st.dataframe(df_view_paradas, width="stretch", hide_index=True)
                                 
                             # --- SEÇÃO: RELATÓRIO A3 LEAN ---
                             st.write("---")
@@ -2494,7 +2556,7 @@ with tab_analises:
                                     dt_str = "-"
                                     if pd.notna(r.get("DATA_INICIO")):
                                         try:
-                                            dt_str = pd.to_datetime(r["DATA_INICIO"]).strftime("%d/%m/%Y")
+                                            dt_str = pd.to_datetime(r["DATA_INICIO"], dayfirst=True).strftime("%d/%m/%Y")
                                         except:
                                             dt_str = str(r["DATA_INICIO"])
                                             
