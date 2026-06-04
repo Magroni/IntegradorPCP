@@ -1982,11 +1982,16 @@ with tab_analises:
                         
                         # 1. Filtro local de Máquinas
                         maquinas_parada_disponiveis = sorted([str(x) for x in df_paradas_m[c_st].unique() if str(x) != "" and str(x) != "nan"])
+                        if "multiselect_maquinas_paradas" not in st.session_state:
+                            st.session_state["multiselect_maquinas_paradas"] = maquinas_parada_disponiveis
+                        else:
+                            st.session_state["multiselect_maquinas_paradas"] = [
+                                x for x in st.session_state["multiselect_maquinas_paradas"] if x in maquinas_parada_disponiveis
+                            ]
                         with col_local1:
                             maquinas_parada_sel = st.multiselect(
                                 "Filtrar Máquinas nas Paradas",
                                 options=maquinas_parada_disponiveis,
-                                default=maquinas_parada_disponiveis,
                                 key="multiselect_maquinas_paradas"
                             )
                         
@@ -1994,12 +1999,17 @@ with tab_analises:
                         motivos_disponiveis = sorted([str(x) for x in df_paradas_m["MOTIVO"].unique() if str(x) != "" and str(x) != "nan"])
                         default_motivos = [m for m in motivos_disponiveis if "ALMOÇO" not in m.upper()]
                         if not default_motivos: default_motivos = motivos_disponiveis # Fallback se só tiver almoço
+                        if "multiselect_motivos_paradas" not in st.session_state:
+                            st.session_state["multiselect_motivos_paradas"] = default_motivos
+                        else:
+                            st.session_state["multiselect_motivos_paradas"] = [
+                                x for x in st.session_state["multiselect_motivos_paradas"] if x in motivos_disponiveis
+                            ]
                         
                         with col_local2:
                             motivos_sel = st.multiselect(
                                 "Filtrar Motivos de Parada (Almoço removido por padrão)",
                                 options=motivos_disponiveis,
-                                default=default_motivos,
                                 key="multiselect_motivos_paradas"
                             )
                             
