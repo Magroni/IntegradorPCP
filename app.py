@@ -670,12 +670,12 @@ with tab_apontamento:
                                     df_p = st.session_state["df_paradas_state"]
                                     if df_p.iloc[0]["MOTIVO"] == "":
                                         df_p.at[df_p.index[0], "DIA_INI"] = f_dia_ini
-                                        df_p.at[df_p.index[0], "DIA_FIM"] = f_dia_fim
+                                        df_p.at[df_p.index[0], "DIA_FIM"] = f_dia_ini
                                     st.session_state["df_paradas_state"] = df_p
                             
                             col_conf_paradas = {
                                 "DIA_INI": st.column_config.DateColumn("D.Início", format="DD/MM/YYYY", default=f_dia_ini),
-                                "DIA_FIM": st.column_config.DateColumn("D.Fim", format="DD/MM/YYYY", default=f_dia_fim),
+                                "DIA_FIM": st.column_config.DateColumn("D.Fim", format="DD/MM/YYYY", default=f_dia_ini),
                                 "HORA_INI": st.column_config.TextColumn("H.Início"),
                                 "HORA_FIM": st.column_config.TextColumn("H.Fim")
                             }
@@ -1361,8 +1361,8 @@ with tab_consulta:
                             df_tp_op = dm.get_tipo_paradas()
                             lista_motivos_ap = sorted(list(df_tp_op["MOTIVO"].dropna().unique())) if not df_tp_op.empty else []
                             col_conf_paradas_edit = {
-                                "DIA_INICIO": st.column_config.DateColumn("D.Início", format="DD/MM/YYYY"),
-                                "DIA_FIM": st.column_config.DateColumn("D.Fim", format="DD/MM/YYYY"),
+                                "DIA_INICIO": st.column_config.DateColumn("D.Início", format="DD/MM/YYYY", default=edit_dia_ini),
+                                "DIA_FIM": st.column_config.DateColumn("D.Fim", format="DD/MM/YYYY", default=edit_dia_ini),
                                 "HORA_INICIO": st.column_config.TextColumn("H.Início"),
                                 "HORA_FIM": st.column_config.TextColumn("H.Fim")
                             }
@@ -1435,16 +1435,8 @@ with tab_consulta:
                                                     erro_parada = f"❌ Hora inválida ou incompleta na parada '{p_row['MOTIVO']}'."
                                                     break
                                                     
-                                                d_ini_p_parsed = p_row.get("DIA_INICIO")
-                                                d_fim_p_parsed = p_row.get("DIA_FIM")
-                                                
-                                                if isinstance(d_ini_p_parsed, str):
-                                                    d_ini_p_parsed = dm.parse_excel_date(d_ini_p_parsed)
-                                                if isinstance(d_fim_p_parsed, str):
-                                                    d_fim_p_parsed = dm.parse_excel_date(d_fim_p_parsed)
-                                                    
-                                                if hasattr(d_ini_p_parsed, "date"): d_ini_p_parsed = d_ini_p_parsed.date()
-                                                if hasattr(d_fim_p_parsed, "date"): d_fim_p_parsed = d_fim_p_parsed.date()
+                                                d_ini_p_parsed = parse_dt(p_row.get("DIA_INICIO"))
+                                                d_fim_p_parsed = parse_dt(p_row.get("DIA_FIM"))
                                                 
                                                 if not d_ini_p_parsed or not d_fim_p_parsed:
                                                     erro_parada = f"❌ Data de início ou fim inválida na parada '{p_row['MOTIVO']}'."
@@ -1454,6 +1446,20 @@ with tab_consulta:
                                                 dt_fim_p = datetime.combine(d_fim_p_parsed, h_fim_p)
                                                 mp = (dt_fim_p - dt_ini_p).total_seconds() / 60
                                                 
+                                                # DEBUG LOG to scratch/validation_debug.log
+                                                try:
+                                                    import os
+                                                    os.makedirs("scratch", exist_ok=True)
+                                                    with open("scratch/validation_debug.log", "a", encoding="utf-8") as f:
+                                                        f.write(f"--- VALIDATION RUN at {datetime.now()} ---\n")
+                                                        f.write(f"Process: ID {selected_id}, Start={dt_ini} (type: {type(dt_ini)}), End={dt_fim} (type: {type(dt_fim)})\n")
+                                                        f.write(f"Parada: Motivo={p_row.get('MOTIVO')}, Start={dt_ini_p} (type: {type(dt_ini_p)}), End={dt_fim_p} (type: {type(dt_fim_p)})\n")
+                                                        f.write(f"dt_ini_p < dt_ini: {dt_ini_p < dt_ini}\n")
+                                                        f.write(f"dt_fim_p > dt_fim: {dt_fim_p > dt_fim}\n")
+                                                        f.write(f"dt_ini_p < dt_ini or dt_fim_p > dt_fim: {dt_ini_p < dt_ini or dt_fim_p > dt_fim}\n")
+                                                except Exception as ex:
+                                                    print("Error writing debug log:", ex)
+
                                                 # Validação: Dentro do intervalo do processo?
                                                 if dt_ini_p < dt_ini or dt_fim_p > dt_fim:
                                                     erro_parada = f"❌ Parada '{p_row['MOTIVO']}' ({h_ini_p.strftime('%H:%M')} às {h_fim_p.strftime('%H:%M')}) está fora do intervalo do processo."
@@ -1701,7 +1707,12 @@ with tab_analises:
             # Gráfico embaixo ocupando a largura total para detalhamento visual
             df_board_gr = df_an.groupby(["DIA_PROD", c_st, c_tr, "TIPO_PROD"])[col_valor].sum().reset_index()
             df_board_gr["MAQ_TURNO"] = df_board_gr[c_st] + " (" + df_board_gr[c_tr] + ")"
-            df_board_gr["DIA"] = df_board_gr["DIA_PROD"].apply(lambda d: d.strftime('%d/%m'))
+            
+            # Ordenação cronológica correta dos dias no gráfico facetado
+            dias_ordenados_board = sorted(df_board_gr["DIA_PROD"].unique())
+            mapa_dias_board = {d: d.strftime('%d/%m') for d in dias_ordenados_board}
+            ordem_dias_board = [mapa_dias_board[d] for d in dias_ordenados_board]
+            df_board_gr["DIA"] = df_board_gr["DIA_PROD"].map(mapa_dias_board)
             
             # Calcula ponto médio de cada segmento para centralizar texto
             tipo_order = {"Refeito": 0, "Normal": 1}  # Refeito na base, Normal em cima
@@ -1747,7 +1758,7 @@ with tab_analises:
             chart_layered = (bars + text_seg + text_totals).properties(width=alt.Step(100), height=450)
             
             faceted_chart = chart_layered.facet(
-                column=alt.Column('DIA:N', title='Dia de Produção', sort=alt.SortOrder('ascending'))
+                column=alt.Column('DIA:N', title='Dia de Produção', sort=ordem_dias_board)
             ).configure_view(stroke=None).configure_axis(labelFontSize=13, titleFontSize=15)
             
             st.altair_chart(faceted_chart, width="stretch")
