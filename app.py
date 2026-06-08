@@ -10,19 +10,63 @@ importlib.reload(dm)
 
 # --- FUNÇÕES DE SUPORTE GLOBAIS (DENTRO DO APP) ---
 def parse_dt(d):
-    if pd.isna(d) or str(d).strip().upper() in ["", "NAN", "NAT", "NONE", "NULL", "-", "0"]: return None
-    try:
-        if isinstance(d, pd.Timestamp): return d.date()
-        d_str = str(d).strip()
-        # Tenta limpar nomes de dias da semana (comum em formatos longos do Excel)
-        if "," in d_str: d_str = d_str.split(",")[-1].strip()
+    if pd.isna(d):
+        return None
+    t_stamp = dm.parse_excel_date(d)
+    if pd.isna(t_stamp):
+        return None
+    return t_stamp.date()
+
+def parse_time_robust(t_val):
+    if not t_val or pd.isna(t_val):
+        return None
+    
+    from datetime import time, datetime as dt_class
+    if isinstance(t_val, time):
+        return t_val
+    if isinstance(t_val, dt_class):
+        return t_val.time()
+    if isinstance(t_val, pd.Timestamp):
+        return t_val.time()
         
-        # Tenta formatos comuns
-        for fmt in ["%d/%m/%Y", "%Y-%m-%d %H:%M:%S", "%d/%m/%y"]:
-            try: return pd.to_datetime(d_str, format=fmt).date()
-            except: continue
-        return pd.to_datetime(d_str).date()
-    except: return None
+    # Se for numérico (ex: 800 ou 1530)
+    if isinstance(t_val, (int, float)):
+        t_val = str(int(t_val))
+        
+    t_str = str(t_val).strip()
+    if not t_str or t_str.lower() in ["nan", "none"]:
+        return None
+        
+    # Se contiver ":"
+    if ":" in t_str:
+        parts = t_str.split(":")
+        if len(parts) >= 2:
+            try:
+                return time(int(parts[0]), int(parts[1]))
+            except:
+                pass
+                
+    # Tenta remover caracteres não numéricos
+    import re
+    t_digits = re.sub(r'\D', '', t_str)
+    if len(t_digits) == 4:
+        try:
+            return time(int(t_digits[:2]), int(t_digits[2:]))
+        except:
+            pass
+    elif len(t_digits) == 3:
+        try:
+            return time(int(t_digits[:1]), int(t_digits[1:]))
+        except:
+            pass
+    elif len(t_digits) == 1 or len(t_digits) == 2:
+        try:
+            return time(int(t_digits), 0)
+        except:
+            pass
+            
+    return None
+
 
 def is_finished(row):
     st_proc = str(row.get("STATUS PROCESSO", "")).upper()
@@ -445,10 +489,12 @@ def render_opcoes_gerais(cfg_atual, df_base):
 df_base = dm.get_base_dados()
 df_all_ap = dm.get_all_apontamentos()
 
-if df_all_ap.empty:
+# Valida se a aba de apontamentos carregada possui as colunas esperadas
+colunas_validas = [c for c in df_all_ap.columns if c in ["PROCESSO", "DATA_REG", "DATA", "DATA_INICIO", "NUMERO_BLOCO", "BLOCO", "ID"]]
+if df_all_ap.empty or not colunas_validas:
     aba_ap = dm._get_sheet("SHEET_AP_BD")
-    st.error(f"❌ Não foi possível carregar os dados de apontamentos. O arquivo de apontamento pode estar temporariamente inacessível ou o nome da aba '{aba_ap}' está incorreto.")
-    st.info("💡 Ajuste os caminhos e as configurações das bases de dados abaixo para apontar para arquivos corretos:")
+    st.error(f"❌ Não foi possível carregar os dados de apontamentos corretos. A aba '{aba_ap}' pode estar incorreta, vazia ou não conter as colunas esperadas (como ID, DATA_REG, PROCESSO).")
+    st.info("💡 Ajuste as configurações da base de dados abaixo para apontar para a aba correta (geralmente 'DB'):")
     
     # Renderiza a interface de configurações gerais de emergência para que o usuário possa consertar
     render_opcoes_gerais(dm.get_config(), df_base)
@@ -702,26 +748,8 @@ with tab_apontamento:
                         
                         # Validação e lógica de salvamento (mesma lógica do callback anterior)
                         # ... processamento dos dados lidos dos widgets acima ...
-                        def parse_time_local(t_str):
-                            if not t_str: return None
-                            import re
-                            from datetime import time
-                            t = re.sub(r'\D', '', str(t_str))
-                            if len(t) == 4:
-                                try: return time(int(t[:2]), int(t[2:]))
-                                except: return None
-                            elif len(t) == 3:
-                                try: return time(int(t[:1]), int(t[1:]))
-                                except: return None
-                            elif ":" in str(t_str):
-                                parts = str(t_str).split(":")
-                                if len(parts) == 2:
-                                    try: return time(int(parts[0]), int(parts[1]))
-                                    except: return None
-                            return None
-
-                        h_ini = parse_time_local(f_hora_ini_str)
-                        h_fim = parse_time_local(f_hora_fim_str)
+                        h_ini = parse_time_robust(f_hora_ini_str)
+                        h_fim = parse_time_robust(f_hora_fim_str)
                         
                         if not f_material or not f_setor or f_qtd_ch is None or not h_ini or not h_fim:
                             st.error("❌ Preencha todos os campos obrigatórios (*) e as horas corretamente.")
@@ -792,20 +820,20 @@ with tab_apontamento:
                                 
                                 for _, p_row in editado_paradas.iterrows():
                                     if p_row.get("MOTIVO"):
-                                        h_ini_p = parse_time_local(p_row.get("HORA_INI"))
-                                        h_fim_p = parse_time_local(p_row.get("HORA_FIM"))
+                                        h_ini_p = parse_time_robust(p_row.get("HORA_INI"))
+                                        h_fim_p = parse_time_robust(p_row.get("HORA_FIM"))
                                         
                                         if not h_ini_p or not h_fim_p:
                                             erro_parada = f"❌ Hora inválida ou incompleta na parada '{p_row['MOTIVO']}'."
                                             break
                                             
-                                        # Conversão extremamente segura usando parse_dt
-                                        d_ini_p_parsed = parse_dt(p_row["DIA_INI"])
-                                        d_fim_p_parsed = parse_dt(p_row["DIA_FIM"])
-                                        
-                                        if not d_ini_p_parsed or not d_fim_p_parsed:
-                                            erro_parada = f"❌ Data de início ou fim inválida na parada '{p_row['MOTIVO']}'."
-                                            break
+                                        # Conversão extremamente segura usando parse_dt com fallback inteligente
+                                        d_ini_p_parsed = parse_dt(p_row.get("DIA_INI"))
+                                        if not d_ini_p_parsed:
+                                            d_ini_p_parsed = f_dia_ini
+                                        d_fim_p_parsed = parse_dt(p_row.get("DIA_FIM"))
+                                        if not d_fim_p_parsed:
+                                            d_fim_p_parsed = d_ini_p_parsed
                                             
                                         dt_ini_p = datetime.combine(d_ini_p_parsed, h_ini_p)
                                         dt_fim_p = datetime.combine(d_fim_p_parsed, h_fim_p)
@@ -853,6 +881,15 @@ with tab_apontamento:
                                     if "carrinho_ap" not in st.session_state: st.session_state["carrinho_ap"] = []
                                     st.session_state["carrinho_ap"].append((novo_rec, par_finais, ins_finais))
                                     st.toast(f"📍 Bloco {f_bloco} no carrinho!", icon="🛒")
+                                    
+                                    # Limpa estados temporários do formulário após sucesso para não duplicar no próximo bloco
+                                    for key in ["df_paradas_state", "df_ins_add", "polishing_heads_state", 
+                                                "ap_bloco_val", "ap_mat_val", "ap_comp_val", "ap_alt_val", 
+                                                "ap_source", "ap_found", "ap_last_bloco", "ap_bloco_trigger_v2",
+                                                "live_res_kg", "live_res_nome", "live_cat_nome", "live_cat_prop",
+                                                "editor_paradas_final", "editor_ins_final"]:
+                                        st.session_state.pop(key, None)
+                                        
                                     st.rerun()
 
                 # --- EXIBIÇÃO DO CARRINHO (FORA DO FORM) ---
@@ -1390,26 +1427,8 @@ with tab_consulta:
                             if not edit_proc or not edit_setor or not edit_material or edit_qtd is None or not edit_dia_ini or not edit_dia_fim:
                                 st.error("❌ Preencha todos os campos obrigatórios (*) com valores válidos.")
                             else:
-                                def parse_time_local(t_str):
-                                    if not t_str: return None
-                                    import re
-                                    from datetime import time
-                                    t = re.sub(r'\D', '', str(t_str))
-                                    if len(t) == 4:
-                                        try: return time(int(t[:2]), int(t[2:]))
-                                        except: return None
-                                    elif len(t) == 3:
-                                        try: return time(int(t[:1]), int(t[1:]))
-                                        except: return None
-                                    elif ":" in str(t_str):
-                                        parts = str(t_str).split(":")
-                                        if len(parts) == 2:
-                                            try: return time(int(parts[0]), int(parts[1]))
-                                            except: return None
-                                    return None
-                                    
-                                h_ini = parse_time_local(edit_hora_ini)
-                                h_fim = parse_time_local(edit_hora_fim)
+                                h_ini = parse_time_robust(edit_hora_ini)
+                                h_fim = parse_time_robust(edit_hora_fim)
                                 if not h_ini or not h_fim:
                                     st.error("❌ Formato de Hora de Início ou Fim inválido (use HH:MM ou HHMM).")
                                 else:
@@ -1428,19 +1447,19 @@ with tab_consulta:
                                         
                                         for _, p_row in edit_df_paradas.iterrows():
                                             if p_row.get("MOTIVO"):
-                                                h_ini_p = parse_time_local(p_row.get("HORA_INICIO"))
-                                                h_fim_p = parse_time_local(p_row.get("HORA_FIM"))
+                                                h_ini_p = parse_time_robust(p_row.get("HORA_INICIO"))
+                                                h_fim_p = parse_time_robust(p_row.get("HORA_FIM"))
                                                 
                                                 if not h_ini_p or not h_fim_p:
                                                     erro_parada = f"❌ Hora inválida ou incompleta na parada '{p_row['MOTIVO']}'."
                                                     break
                                                     
                                                 d_ini_p_parsed = parse_dt(p_row.get("DIA_INICIO"))
+                                                if not d_ini_p_parsed:
+                                                    d_ini_p_parsed = edit_dia_ini
                                                 d_fim_p_parsed = parse_dt(p_row.get("DIA_FIM"))
-                                                
-                                                if not d_ini_p_parsed or not d_fim_p_parsed:
-                                                    erro_parada = f"❌ Data de início ou fim inválida na parada '{p_row['MOTIVO']}'."
-                                                    break
+                                                if not d_fim_p_parsed:
+                                                    d_fim_p_parsed = d_ini_p_parsed
                                                     
                                                 dt_ini_p = datetime.combine(d_ini_p_parsed, h_ini_p)
                                                 dt_fim_p = datetime.combine(d_fim_p_parsed, h_fim_p)
@@ -1892,22 +1911,8 @@ with tab_analises:
                         except:
                             pass
                     
-                    # Fallback com HORA_INICIO e HORA_FIM
-                    def parse_time_helper(t_str):
-                        if not t_str or pd.isna(t_str): return None
-                        import re
-                        from datetime import time
-                        t = re.sub(r'\D', '', str(t_str))
-                        if len(t) == 4:
-                            try: return time(int(t[:2]), int(t[2:]))
-                            except: return None
-                        elif len(t) == 3:
-                            try: return time(int(t[:1]), int(t[1:]))
-                            except: return None
-                        return None
-
-                    h_ini = parse_time_helper(row.get("HORA_INICIO"))
-                    h_fim = parse_time_helper(row.get("HORA_FIM"))
+                    h_ini = parse_time_robust(row.get("HORA_INICIO"))
+                    h_fim = parse_time_robust(row.get("HORA_FIM"))
                     
                     if h_ini and h_fim:
                         # Tenta usar datas se disponíveis
