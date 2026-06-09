@@ -534,9 +534,16 @@ with tab_apontamento:
         st.markdown("### Registro de Produção")
         
         # 1. BUSCA DE BLOCO (Sempre disponível no topo)
+        if "block_key_counter" not in st.session_state:
+            st.session_state["block_key_counter"] = 0
+            
         c_bl1, c_bl2 = st.columns([1, 3])
         with c_bl1:
-            f_bloco = st.text_input("Nº Bloco*", value=st.session_state.get("ap_bloco_val", ""), placeholder="Ex: 1234", key="ap_bloco_trigger_v2")
+            f_bloco = st.text_input(
+                "Nº Bloco*", 
+                placeholder="Ex: 1234", 
+                key=f"ap_bloco_trigger_v4_{st.session_state['block_key_counter']}"
+            )
         
         if f_bloco != st.session_state.get("ap_last_bloco"):
             if f_bloco:
@@ -554,6 +561,25 @@ with tab_apontamento:
                         st.session_state["ap_alt_val"] = 0.0
                         st.session_state["ap_source"] = ""
                         st.session_state["ap_found"] = False
+                
+                # Aplica herança de valores do apontamento anterior para o novo bloco
+                if "prev_tipo_proc" in st.session_state:
+                    st.session_state["ap_tipo_proc_v3"] = st.session_state["prev_tipo_proc"]
+                if "prev_processo" in st.session_state:
+                    st.session_state["f_proc_master_v5"] = st.session_state["prev_processo"]
+                if "prev_setor" in st.session_state:
+                    st.session_state["ap_setor_v3"] = st.session_state["prev_setor"]
+                if "prev_operador" in st.session_state:
+                    st.session_state["ap_operador_v3"] = st.session_state["prev_operador"]
+                if "prev_dia_ini" in st.session_state:
+                    st.session_state["ap_dia_ini_v3"] = st.session_state["prev_dia_ini"]
+                if "prev_dia_fim" in st.session_state:
+                    st.session_state["ap_dia_fim_v3"] = st.session_state["prev_dia_fim"]
+                if "prev_polishing_heads_state" in st.session_state:
+                    st.session_state["polishing_heads_state"] = list(st.session_state["prev_polishing_heads_state"])
+                    for i, val in enumerate(st.session_state["prev_polishing_heads_state"], 1):
+                        st.session_state[f"f_cab_form_{i}"] = val
+                        
                 st.session_state["ap_last_bloco"] = f_bloco
                 st.rerun()
             else:
@@ -585,6 +611,10 @@ with tab_apontamento:
             # Carrega dinamicamente os tipos de processos da aba de configuração
             df_ts = dm.get_tipo_setores()
             tipos_processo = [""] + sorted(list(df_ts["TIPO_PROCESSO"].dropna().unique()))
+            
+            # Garante que o valor no session_state é válido para evitar crash do Streamlit
+            if "ap_tipo_proc_v3" in st.session_state and st.session_state["ap_tipo_proc_v3"] not in tipos_processo:
+                del st.session_state["ap_tipo_proc_v3"]
             f_tipo = st.selectbox("1. Tipo de Processo*", tipos_processo, key="ap_tipo_proc_v3")
             
             if f_tipo:
@@ -606,7 +636,10 @@ with tab_apontamento:
                 else:
                     opcoes_proc_master = sorted(list(set(processos_permitidos)))
                     
-                f_processo = st.selectbox("2. Processo/Etapa*", [""] + opcoes_proc_master, key="f_proc_master_v5")
+                opcoes_proc_master_with_empty = [""] + opcoes_proc_master
+                if "f_proc_master_v5" in st.session_state and st.session_state["f_proc_master_v5"] not in opcoes_proc_master_with_empty:
+                    del st.session_state["f_proc_master_v5"]
+                f_processo = st.selectbox("2. Processo/Etapa*", opcoes_proc_master_with_empty, key="f_proc_master_v5")
                 
                 if f_processo:
                     # 1. SEÇÃO LIVE: RESINAGEM (Manual e Dinâmica via Form para evitar lag)
@@ -656,8 +689,11 @@ with tab_apontamento:
                                 setores_mapa = set(v for v in mapa_processos.values() if v)
                                 setores_disponiveis = sorted(list(setores_ativos | setores_mapa))
                                 
-                            f_setor = st.selectbox("Máquina/Setor*", [""] + setores_disponiveis)
-                            f_operador = st.text_input("Operador")
+                            setores_disponiveis_with_empty = [""] + setores_disponiveis
+                            if "ap_setor_v3" in st.session_state and st.session_state["ap_setor_v3"] not in setores_disponiveis_with_empty:
+                                del st.session_state["ap_setor_v3"]
+                            f_setor = st.selectbox("Máquina/Setor*", setores_disponiveis_with_empty, key="ap_setor_v3")
+                            f_operador = st.text_input("Operador", key="ap_operador_v3")
                         with c_p3:
                             f_qtd_ch = st.number_input("Qtd Chapas*", min_value=0, step=1, value=None)
                             f_esp = st.number_input("Espessura", min_value=0.0, step=0.1, value=None)
@@ -666,15 +702,19 @@ with tab_apontamento:
                             f_alt = st.number_input("Altura (m)", min_value=0.0, step=0.01, value=float(st.session_state.get("ap_alt_val", 0.0)))
 
                         c_t1, c_t2, c_t3, c_t4 = st.columns(4)
-                        with c_t1: f_dia_ini = st.date_input("Dia Início", value=datetime.now() - timedelta(days=1), format="DD/MM/YYYY")
-                        with c_t2: f_dia_fim = st.date_input("Dia Fim", value=datetime.now() - timedelta(days=1), format="DD/MM/YYYY")
-                        with c_t3: f_hora_ini_str = st.text_input("Hora Início", value="", placeholder="Ex: 0800")
-                        with c_t4: f_hora_fim_str = st.text_input("Hora Fim", value="", placeholder="Ex: 1530")
+                        default_dia_ini = st.session_state.get("prev_dia_ini", datetime.now() - timedelta(days=1))
+                        default_dia_fim = st.session_state.get("prev_dia_fim", datetime.now() - timedelta(days=1))
+                        
+                        with c_t1: f_dia_ini = st.date_input("Dia Início", value=default_dia_ini, format="DD/MM/YYYY", key="ap_dia_ini_v3")
+                        with c_t2: f_dia_fim = st.date_input("Dia Fim", value=default_dia_fim, format="DD/MM/YYYY", key="ap_dia_fim_v3")
+                        with c_t3: f_hora_ini_str = st.text_input("Hora Início", placeholder="Ex: 0800", key="ap_hora_ini_v3")
+                        with c_t4: f_hora_fim_str = st.text_input("Hora Fim", placeholder="Ex: 1530", key="ap_hora_fim_v3")
 
                         if f_tipo == "Levigamento / Polimento":
                             st.markdown("---")
                             st.caption("⚙️ Configuração da Máquina (C01 a C20)")
-                            if "polishing_heads_state" not in st.session_state: st.session_state["polishing_heads_state"] = [""] * 20
+                            if "polishing_heads_state" not in st.session_state:
+                                st.session_state["polishing_heads_state"] = st.session_state.get("prev_polishing_heads_state", [""] * 20)
                             for r in range(2):
                                 cols_c = st.columns(10)
                                 for c in range(10):
@@ -882,69 +922,82 @@ with tab_apontamento:
                                     st.session_state["carrinho_ap"].append((novo_rec, par_finais, ins_finais))
                                     st.toast(f"📍 Bloco {f_bloco} no carrinho!", icon="🛒")
                                     
+                                    # Salva valores para herança no próximo apontamento
+                                    st.session_state["prev_tipo_proc"] = f_tipo
+                                    st.session_state["prev_processo"] = f_processo
+                                    st.session_state["prev_setor"] = f_setor
+                                    st.session_state["prev_operador"] = f_operador
+                                    st.session_state["prev_dia_ini"] = f_dia_ini
+                                    st.session_state["prev_dia_fim"] = f_dia_fim
+                                    if f_tipo == "Levigamento / Polimento":
+                                        st.session_state["prev_polishing_heads_state"] = [st.session_state.get(f"f_cab_form_{i}", "") for i in range(1, 21)]
+                                    
                                     # Limpa estados temporários do formulário após sucesso para não duplicar no próximo bloco
+                                    st.session_state["block_key_counter"] = st.session_state.get("block_key_counter", 0) + 1
+                                    st.session_state["ap_last_bloco"] = ""
                                     for key in ["df_paradas_state", "df_ins_add", "polishing_heads_state", 
                                                 "ap_bloco_val", "ap_mat_val", "ap_comp_val", "ap_alt_val", 
-                                                "ap_source", "ap_found", "ap_last_bloco", "ap_bloco_trigger_v2",
+                                                "ap_source", "ap_found",
                                                 "live_res_kg", "live_res_nome", "live_cat_nome", "live_cat_prop",
                                                 "editor_paradas_final", "editor_ins_final"]:
                                         st.session_state.pop(key, None)
                                         
                                     st.rerun()
 
-                # --- EXIBIÇÃO DO CARRINHO (FORA DO FORM) ---
-                if "carrinho_ap" in st.session_state and st.session_state["carrinho_ap"]:
-                    st.markdown("### 🛒 Carrinho de Apontamentos")
-                    st.info(f"Você tem {len(st.session_state['carrinho_ap'])} apontamento(s) no carrinho.")
-                    
-                    dados_view = []
-                    for idx, (rec, par, ins) in enumerate(st.session_state["carrinho_ap"]):
-                        dados_view.append({
-                            "Nº": idx + 1,
-                            "Bloco": rec["BLOCO_RAW"], 
-                            "Material": rec["NOME_MATERIAL"], 
-                            "Processo": rec["PROCESSO_APONTADO"], 
-                            "Chapas": rec["QTD_CH"]
-                        })
-                    st.table(pd.DataFrame(dados_view))
-                    
-                    with st.expander("❌ Remover Item Específico do Carrinho"):
-                        item_to_remove = st.selectbox(
-                            "Selecione o apontamento do carrinho para remover:",
-                            range(len(st.session_state["carrinho_ap"])),
-                            format_func=lambda i: f"{i+1}. Bloco {st.session_state['carrinho_ap'][i][0]['BLOCO_RAW']} - {st.session_state['carrinho_ap'][i][0]['PROCESSO_APONTADO']}",
-                            key="select_item_remove_cart"
-                        )
-                        if st.button("Confirmar Remoção do Item Selecionado", width="stretch", key="btn_remove_item_cart"):
-                            st.session_state["carrinho_ap"].pop(item_to_remove)
-                            st.success("Item removido do carrinho com sucesso!")
-                            st.rerun()
-                    
-                    c_b1, c_b2 = st.columns(2)
-                    with c_b1:
-                        if st.button("🗑️ Limpar Carrinho", width="stretch"):
-                            st.session_state["carrinho_ap"] = []
-                            st.rerun()
-                    with c_b2:
-                        if st.button("🚀 FINALIZAR E SALVAR TUDO", type="primary", width="stretch"):
-                            with st.spinner("Gravando no Excel..."):
-                                next_id = dm.get_next_apontamento_id()
-                                batch = []
-                                for rec, par, ins in st.session_state["carrinho_ap"]:
-                                    rec["ID"] = next_id
-                                    batch.append((rec, par, ins))
-                                    next_id += 1
-                                
-                                ok, err = dm.add_apontamento_batch(batch)
-                                if ok:
-                                    st.success(f"✅ {len(batch)} itens salvos com sucesso!")
-                                    st.session_state["carrinho_ap"] = []
-                                    st.balloons()
-                                    st.rerun()
-                                else:
-                                    st.error(f"❌ Erro ao salvar: {err}")
                 else: st.info("Selecione um processo acima para abrir o formulário.")
             else: st.info("Selecione um Tipo de Processo acima.")
+
+    # --- EXIBIÇÃO DO CARRINHO (FORA DO EXPANDER) ---
+    if "carrinho_ap" in st.session_state and st.session_state["carrinho_ap"]:
+        st.markdown("### 🛒 Carrinho de Apontamentos")
+        st.info(f"Você tem {len(st.session_state['carrinho_ap'])} apontamento(s) no carrinho.")
+        
+        dados_view = []
+        for idx, (rec, par, ins) in enumerate(st.session_state["carrinho_ap"]):
+            dados_view.append({
+                "Nº": idx + 1,
+                "Bloco": rec["BLOCO_RAW"], 
+                "Material": rec["NOME_MATERIAL"], 
+                "Processo": rec["PROCESSO_APONTADO"], 
+                "Chapas": rec["QTD_CH"]
+            })
+        st.table(pd.DataFrame(dados_view))
+        
+        with st.expander("❌ Remover Item Específico do Carrinho"):
+            item_to_remove = st.selectbox(
+                "Selecione o apontamento do carrinho para remover:",
+                range(len(st.session_state["carrinho_ap"])),
+                format_func=lambda i: f"{i+1}. Bloco {st.session_state['carrinho_ap'][i][0]['BLOCO_RAW']} - {st.session_state['carrinho_ap'][i][0]['PROCESSO_APONTADO']}",
+                key="select_item_remove_cart"
+            )
+            if st.button("Confirmar Remoção do Item Selecionado", width="stretch", key="btn_remove_item_cart"):
+                st.session_state["carrinho_ap"].pop(item_to_remove)
+                st.success("Item removido do carrinho com sucesso!")
+                st.rerun()
+        
+        c_b1, c_b2 = st.columns(2)
+        with c_b1:
+            if st.button("🗑️ Limpar Carrinho", width="stretch"):
+                st.session_state["carrinho_ap"] = []
+                st.rerun()
+        with c_b2:
+            if st.button("🚀 FINALIZAR E SALVAR TUDO", type="primary", width="stretch"):
+                with st.spinner("Gravando no Excel..."):
+                    next_id = dm.get_next_apontamento_id()
+                    batch = []
+                    for rec, par, ins in st.session_state["carrinho_ap"]:
+                        rec["ID"] = next_id
+                        batch.append((rec, par, ins))
+                        next_id += 1
+                    
+                    ok, err = dm.add_apontamento_batch(batch)
+                    if ok:
+                        st.success(f"✅ {len(batch)} itens salvos com sucesso!")
+                        st.session_state["carrinho_ap"] = []
+                        st.balloons()
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Erro ao salvar: {err}")
 
     st.divider()
 

@@ -1,5 +1,5 @@
 # AGENT_CONTEXT.md — Contexto do Projeto Apontamento & Indicadores Costa Granitos
-> **Atualizado em:** 2026-06-05 (v23)  
+> **Atualizado em:** 2026-06-09 (v25)  
 > **Propósito:** Arquivo de contexto para agentes de IA. Leia este arquivo antes de qualquer alteração no projeto.
 
 ---
@@ -236,6 +236,8 @@ O arquivo `config.json` na raiz do projeto controla os caminhos:
 
 | Data | Alteração |
 |------|-----------| 
+| 2026-06-09 | **Remoção de Debug e Herança de Horas (v25)**: Removido o print visual de depuração `DEBUG STATE` e desativada a herança automática das horas de início e fim no formulário de apontamento manual para que o usuário as preencha de forma explícita a cada bloco. |
+| 2026-06-09 | **Herança de Campos & Carrinho Fixo (v24)**: Ajustada a exibição do Carrinho de Apontamentos para ficar sempre visível fora do form/expander mesmo após limpar o código do bloco. Implementada a herança do Tipo de Processo, Processo/Etapa, Setor/Máquina, Operador, datas, horas e a sequência de abrasivos (SAT1 a SAT20) do apontamento anterior para otimizar os registros subsequentes. |
 | 2026-06-05 | **Correção na Ordenação de Datas do Board de Produtividade (v23)**: Corrigido o ordenamento cronológico de datas (passagem de um mês ao outro) no gráfico facetado do Board de Produtividade Diária. A ordenação nominal padrão do Altair (`alt.SortOrder('ascending')`) realizava ordenamento alfabético (por exemplo, `01/06` antes de `15/05`), o que causava distorções quando havia múltiplos meses. O gráfico agora recebe uma lista de datas estruturada cronologicamente no parâmetro `sort`. |
 | 2026-06-05 | **Correção no Salvamento de Paradas para Processos Multi-dia (v22)**: Corrigido o bug onde paradas registradas para processos de múltiplos dias (como SERRAR) falhavam na validação porque o campo de data de término da parada (`D.Fim`) defaultava para a data de término do processo, fazendo com que uma parada de 1 hora no primeiro dia parecesse durar mais de 24 horas (extrapolando o tempo do processo). O valor padrão de `D.Fim` foi alterado para coincidir com o `D.Início` da parada (`f_dia_ini` / `edit_dia_ini`). Também foi adicionado o preenchimento automático das datas de início/fim nas novas paradas adicionadas pelo formulário de edição (evitando crashes por `TypeError` com campos em branco) e adicionada a checagem segura de nulos com `parse_dt` na validação de paradas. |
 | 2026-06-03 | **Limpeza de Código Morto (v21)**: Removidas todas as funções legadas da antiga funcionalidade de roteirização/sequenciamento de blocos do arquivo [data_manager.py](file:///z:/PCP/PROJETOS%20MARLON/ProgramarProd/data_manager.py) (`get_data`, `get_headers`, `validar_sequencia_bloco`, `add_record`, `add_records`, `update_cell_by_row`, `salvar_edicao_bloco_excel` e `get_historico_medias`). Atualizado o arquivo de contexto e as regras de negócio para refletir que o sistema opera em cima de apontamentos reais. |
