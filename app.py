@@ -794,13 +794,32 @@ with tab_apontamento:
                         if not f_material or not f_setor or f_qtd_ch is None or not h_ini or not h_fim:
                             st.error("❌ Preencha todos os campos obrigatórios (*) e as horas corretamente.")
                         else:
-                            # Calcula tempo processo
-                            dt1 = datetime.combine(f_dia_ini, h_ini)
-                            dt2 = datetime.combine(f_dia_fim, h_fim)
-                            m_tot = (dt2 - dt1).total_seconds() / 60
+                            # Validação extra de segurança: Máquina e Processo pertencem ao Tipo de Processo selecionado?
+                            validacao_tipo_ok = True
+                            if f_tipo:
+                                match_row = df_ts[df_ts["TIPO_PROCESSO"] == f_tipo]
+                                if not match_row.empty:
+                                    setores_str = str(match_row.iloc[0].get("SETORES", ""))
+                                    setores_permitidos = [s.strip().upper() for s in setores_str.split(",") if s.strip()]
+                                    if setores_permitidos and f_setor.upper() not in setores_permitidos:
+                                        st.error(f"❌ A máquina/setor '{f_setor}' não é permitida para o tipo de processo '{f_tipo}'.")
+                                        validacao_tipo_ok = False
+                                    
+                                    if validacao_tipo_ok and "opcoes_proc_master" in locals() and opcoes_proc_master and f_processo not in opcoes_proc_master:
+                                        st.error(f"❌ O processo/etapa '{f_processo}' não é permitido para o tipo de processo '{f_tipo}'.")
+                                        validacao_tipo_ok = False
+
+                            # Calcula tempo processo se a validação passou, senão força valor inválido para barrar
+                            if validacao_tipo_ok:
+                                dt1 = datetime.combine(f_dia_ini, h_ini)
+                                dt2 = datetime.combine(f_dia_fim, h_fim)
+                                m_tot = (dt2 - dt1).total_seconds() / 60
+                            else:
+                                m_tot = -1
                             
                             if m_tot <= 0:
-                                st.error("❌ Tempo total deve ser positivo.")
+                                if validacao_tipo_ok:
+                                    st.error("❌ Tempo total deve ser positivo.")
                             else:
                                 # Coleta Insumos das Cabeças
                                 ins_finais = []
