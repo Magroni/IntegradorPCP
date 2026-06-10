@@ -635,6 +635,7 @@ def get_all_apontamentos():
         return pd.DataFrame()
 
 
+def add_apontamento(record_dict):
     """
     Adiciona um novo registro na aba 'BD' do arquivo de Apontamento.
     Busca dinamicamente o cabeçalho e insere na próxima linha vazia.
@@ -659,6 +660,14 @@ def get_all_apontamentos():
             val = ws.cell(row=header_row_idx, column=c).value
             if val:
                 headers[str(val).strip().upper()] = c
+        
+        # Se a coluna de observações não existir na planilha, cria uma nova
+        if not any(h in headers for h in ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS"]):
+            col_idx = 1
+            while ws.cell(row=header_row_idx, column=col_idx).value is not None:
+                col_idx += 1
+            ws.cell(row=header_row_idx, column=col_idx, value="OBSERVAÇÕES")
+            headers["OBSERVAÇÕES"] = col_idx
         
         # Encontra próxima linha vazia (baseada na coluna DATA REG ou PROCESSO)
         col_ref = headers.get("DATA REG") or headers.get("PROCESSO") or 1
@@ -730,7 +739,8 @@ def _get_system_mapping():
         "VEL_TRAVE": ["VEL.TRAVE", "VEL TRAVE", "VEL_TRAVE"],
         "TIPO_MANTA": ["TIPO MANTA", "TIPO_MANTA"],
         "QTD_MANTA": ["QTD MANTA", "QTD_MANTA"],
-        "ID": ["ID", "Nº ID", "ID_APONTAMENTO"]
+        "ID": ["ID", "Nº ID", "ID_APONTAMENTO"],
+        "OBSERVACOES": ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS", "OBSERVACOES_APONTAMENTO"]
     }
     # Adiciona mapeamento de abrasivos SAT1 a SAT20
     for i in range(1, 21):
@@ -852,6 +862,14 @@ def add_apontamento_batch(batch_list):
             val = ws_bd.cell(row=header_row_idx, column=c).value
             if val:
                 headers_bd[str(val).strip().upper()] = c
+        
+        # Se a coluna de observações não existir na planilha, cria uma nova
+        if not any(h in headers_bd for h in ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS"]):
+            col_idx = 1
+            while ws_bd.cell(row=header_row_idx, column=col_idx).value is not None:
+                col_idx += 1
+            ws_bd.cell(row=header_row_idx, column=col_idx, value="OBSERVAÇÕES")
+            headers_bd["OBSERVAÇÕES"] = col_idx
 
         system_mapping = _get_system_mapping()
 
@@ -1332,6 +1350,14 @@ def update_apontamento(id_apontamento, updates_dict):
             val = ws.cell(row=header_row_idx, column=c).value
             if val:
                 headers[str(val).strip().upper()] = c
+        
+        # Se a coluna de observações não existir na planilha, cria uma nova
+        if not any(h in headers for h in ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS"]):
+            col_idx = 1
+            while ws.cell(row=header_row_idx, column=col_idx).value is not None:
+                col_idx += 1
+            ws.cell(row=header_row_idx, column=col_idx, value="OBSERVAÇÕES")
+            headers["OBSERVAÇÕES"] = col_idx
         
         col_id_idx = headers.get("ID")
         if not col_id_idx:

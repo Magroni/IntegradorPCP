@@ -710,6 +710,9 @@ with tab_apontamento:
                         with c_t3: f_hora_ini_str = st.text_input("Hora Início", placeholder="Ex: 0800", key="ap_hora_ini_v3")
                         with c_t4: f_hora_fim_str = st.text_input("Hora Fim", placeholder="Ex: 1530", key="ap_hora_fim_v3")
 
+                        # Campo de texto para Observações
+                        f_observacoes = st.text_input("Observações", key="ap_observacoes_v3", placeholder="Escreva observações opcionais sobre o processo")
+
                         if f_tipo == "Levigamento / Polimento":
                             st.markdown("---")
                             st.caption("⚙️ Configuração da Máquina (C01 a C20)")
@@ -935,7 +938,8 @@ with tab_apontamento:
                                         "ESP": f_esp if f_esp else "", "COMP": f_comp if f_comp else "", "ALT": f_alt if f_alt else "",
                                         "OPERADOR": f_operador.upper() if f_operador else "", "DIA_INICIO": f_dia_ini.strftime("%d/%m/%Y"),
                                         "DIA_FIM": f_dia_fim.strftime("%d/%m/%Y"), "HORA_INICIO": h_ini.strftime("%H:%M"),
-                                        "HORA_FIM": h_fim.strftime("%H:%M"), "TEMPO_PROCESSO": f"{int(m_tot // 60):02d}:{int(m_tot % 60):02d}", "TURNO": f_turno
+                                        "HORA_FIM": h_fim.strftime("%H:%M"), "TEMPO_PROCESSO": f"{int(m_tot // 60):02d}:{int(m_tot % 60):02d}", "TURNO": f_turno,
+                                        "OBSERVACOES": f_observacoes.upper() if f_observacoes else ""
                                     }
                                     if "carrinho_ap" not in st.session_state: st.session_state["carrinho_ap"] = []
                                     st.session_state["carrinho_ap"].append((novo_rec, par_finais, ins_finais))
@@ -958,7 +962,7 @@ with tab_apontamento:
                                                 "ap_bloco_val", "ap_mat_val", "ap_comp_val", "ap_alt_val", 
                                                 "ap_source", "ap_found",
                                                 "live_res_kg", "live_res_nome", "live_cat_nome", "live_cat_prop",
-                                                "editor_paradas_final", "editor_ins_final"]:
+                                                "editor_paradas_final", "editor_ins_final", "ap_observacoes_v3"]:
                                         st.session_state.pop(key, None)
                                         
                                     st.rerun()
@@ -1302,6 +1306,10 @@ with tab_consulta:
                         st.write(f"**Data / Hora Início:** {d_ini_str} às {h_ini_str}")
                         st.write(f"**Data / Hora Fim:** {d_fim_str} às {h_fim_str}")
                         st.write(f"**Tempo de Processo:** {ap_row.get('TEMPO_PROCESSO', '-')} h/min")
+                        
+                        col_obs = next((c for c in ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS"] if c in ap_row.index), None)
+                        obs_val = ap_row.get(col_obs, "-") if col_obs else "-"
+                        st.write(f"**Observações:** {obs_val if pd.notna(obs_val) and str(obs_val).strip() != '' else '-'}")
                 
                 st.write("")
                 
@@ -1442,6 +1450,11 @@ with tab_consulta:
                             raw_turno = str(ap_row.get("TURNO", "D")).strip().upper()
                             edit_turno = st.selectbox("Turno", ["D", "N"], index=0 if raw_turno == "D" else 1)
                             st.text_input("Tempo Processo (Calculado automaticamente)", value=str(ap_row.get("TEMPO_PROCESSO", "")), disabled=True)
+                        
+                        # Campo de texto para Observações na Edição
+                        col_obs = next((c for c in ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS"] if c in ap_row.index), None)
+                        obs_val_init = str(ap_row.get(col_obs, "")) if col_obs and pd.notna(ap_row.get(col_obs)) else ""
+                        edit_obs = st.text_input("Observações", value=obs_val_init, placeholder="Observações do apontamento")
 
                         st.markdown("---")
                         st.markdown("### 🛑 Paradas & 🧪 Insumos do Apontamento")
@@ -1609,7 +1622,8 @@ with tab_consulta:
                                                 "HORA_FIM": h_fim.strftime("%H:%M"),
                                                 "DIA_INICIO": edit_dia_ini.strftime("%d/%m/%Y"),
                                                 "DIA_FIM": edit_dia_fim.strftime("%d/%m/%Y"),
-                                                "QTD_M2": round(edit_comp * edit_alt * edit_qtd, 3) if edit_comp and edit_alt else 0.0
+                                                "QTD_M2": round(edit_comp * edit_alt * edit_qtd, 3) if edit_comp and edit_alt else 0.0,
+                                                 "OBSERVACOES": edit_obs.upper() if edit_obs else ""
                                             }
                                             with st.spinner("Salvando alterações no Excel..."):
                                                 ok_main = dm.update_apontamento(selected_id, updates)

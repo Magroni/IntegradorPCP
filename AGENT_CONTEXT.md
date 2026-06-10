@@ -1,5 +1,5 @@
 # AGENT_CONTEXT.md — Contexto do Projeto Apontamento & Indicadores Costa Granitos
-> **Atualizado em:** 2026-06-09 (v25)  
+> **Atualizado em:** 2026-06-10 (v26)  
 > **Propósito:** Arquivo de contexto para agentes de IA. Leia este arquivo antes de qualquer alteração no projeto.
 
 ---
@@ -94,6 +94,7 @@ Planilha mantida pelo operador. O sistema a lê em **modo somente leitura**.
 | `TIPO_ENDUR`, `QDKG_ENDUR` | Tipo e Quantidade de endurecedor |
 | `TEMPO_SECAGEM` | Tempo de secagem |
 | `SAT1..SAT20` | Sequência de abrasivos |
+| `OBSERVAÇÕES` | Campo de texto livre para observações do operador sobre o processo (Criado dinamicamente se ausente) |
 
 > **IMPORTANTE**: Para o Confronto (Aba 4), a coluna correta é `DATA_INICIO`, NÃO `DATA_REG`.
 
@@ -236,6 +237,7 @@ O arquivo `config.json` na raiz do projeto controla os caminhos:
 
 | Data | Alteração |
 |------|-----------| 
+| 2026-06-10 | **Campo Observações com Auto-criação de Colunas (v26)**: Implementado campo de Observações no formulário de Lançamento e no de Edição de Apontamento. Criada lógica no backend (`data_manager.py`) que detecta a ausência da coluna `OBSERVAÇÕES` no Excel e a anexa automaticamente ao fim do cabeçalho da planilha caso ela não exista. O campo também foi adicionado à Ficha Consolidada na Consulta de Apontamentos. Corrigido o escopo e a identação da função `add_apontamento` no módulo de dados. |
 | 2026-06-09 | **Remoção de Debug, Herança de Horas e Validação de Tipos (v25)**: Removido o print visual de depuração `DEBUG STATE`, desativada a herança automática das horas de início/fim e adicionada validação estrita no backend (`if btn_carrinho`) que bloca o envio caso a máquina/setor ou o processo selecionado não pertençam ao Tipo de Processo indicado (cruzando dados de `TIPO_SETORES` e `BASE DE DADOS`). |
 | 2026-06-09 | **Herança de Campos & Carrinho Fixo (v24)**: Ajustada a exibição do Carrinho de Apontamentos para ficar sempre visível fora do form/expander mesmo após limpar o código do bloco. Implementada a herança do Tipo de Processo, Processo/Etapa, Setor/Máquina, Operador, datas, horas e a sequência de abrasivos (SAT1 a SAT20) do apontamento anterior para otimizar os registros subsequentes. |
 | 2026-06-05 | **Correção na Ordenação de Datas do Board de Produtividade (v23)**: Corrigido o ordenamento cronológico de datas (passagem de um mês ao outro) no gráfico facetado do Board de Produtividade Diária. A ordenação nominal padrão do Altair (`alt.SortOrder('ascending')`) realizava ordenamento alfabético (por exemplo, `01/06` antes de `15/05`), o que causava distorções quando havia múltiplos meses. O gráfico agora recebe uma lista de datas estruturada cronologicamente no parâmetro `sort`. |
