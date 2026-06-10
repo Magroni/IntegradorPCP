@@ -3,6 +3,7 @@ import pandas as pd
 import openpyxl
 import os
 import json
+import time
 
 # ---------------------------------------------------------------------------
 # CONFIGURAÇÃO DE CAMINHOS (lidos do config.json em runtime)
@@ -24,6 +25,55 @@ _DEFAULT_CONFIG = {
     "BLOCKS_FILE": r"z:\PCP\PROJETOS MARLON\ProgramarProd\PLANILHA BLOCOS.xlsb",
     "CHAPAS_FILE": r"z:\PCP\PROJETOS MARLON\ProgramarProd\Estoque Chapas 2026.xlsx"
 }
+
+
+def _read_excel_with_retry(filepath, **kwargs):
+    """Lê um arquivo Excel com retentativas em caso de erro de permissão/bloqueio."""
+    retries = 5
+    delay = 0.5
+    for i in range(retries):
+        try:
+            return pd.read_excel(filepath, **kwargs)
+        except PermissionError as e:
+            if i == retries - 1:
+                raise e
+            time.sleep(delay)
+            delay *= 2
+        except Exception as e:
+            raise e
+
+
+def _load_workbook_with_retry(filepath, **kwargs):
+    """Carrega um arquivo openpyxl com retentativas em caso de erro de permissão/bloqueio."""
+    retries = 5
+    delay = 0.5
+    for i in range(retries):
+        try:
+            return openpyxl.load_workbook(filepath, **kwargs)
+        except PermissionError as e:
+            if i == retries - 1:
+                raise e
+            time.sleep(delay)
+            delay *= 2
+        except Exception as e:
+            raise e
+
+
+def _save_workbook_with_retry(wb, filepath):
+    """Salva um workbook openpyxl com retentativas em caso de erro de permissão/bloqueio."""
+    retries = 5
+    delay = 0.5
+    for i in range(retries):
+        try:
+            wb.save(filepath)
+            return True
+        except PermissionError as e:
+            if i == retries - 1:
+                raise e
+            time.sleep(delay)
+            delay *= 2
+        except Exception as e:
+            raise e
 
 
 def get_config():
@@ -60,15 +110,17 @@ def _get_apontamento_file():
 
 
 def _get_sheet(key: str) -> str:
-    """Retorna o nome da aba configurada, com fallback para o default."""
-    return get_config().get(key, _DEFAULT_CONFIG[key])
+    """Retorna o nome da aba configurada, com fallback robusto para o default."""
+    val = get_config().get(key)
+    if val is None or str(val).strip() == "" or str(val).lower() == "none":
+        return _DEFAULT_CONFIG[key]
+    return val
 
 
 def get_sheet_names(filepath: str):
     """Retorna a lista de nomes de abas de um arquivo Excel."""
     try:
-        import openpyxl
-        wb = openpyxl.load_workbook(filepath, read_only=True)
+        wb = _load_workbook_with_retry(filepath, read_only=True)
         names = wb.sheetnames
         wb.close()
         return names
@@ -161,7 +213,7 @@ def parse_excel_date(val):
 def get_base_dados():
     """Lê a aba de Base de Dados e retorna o DataFrame."""
     try:
-        df = pd.read_excel(_get_db_file(), sheet_name=_get_sheet("SHEET_BASE_DADOS"), engine="openpyxl")
+        df = _read_excel_with_retry(_get_db_file(), sheet_name=_get_sheet("SHEET_BASE_DADOS"), engine="openpyxl")
         return df
     except Exception as e:
         print(f"Erro ao carregar base de dados: {e}")
@@ -171,7 +223,7 @@ def get_base_dados():
 def get_data_entregues():
     """Lê a aba de Entregues para cálculo de capacidade."""
     try:
-        df = pd.read_excel(_get_db_file(), sheet_name=_get_sheet("SHEET_ENTREGUES"), engine="openpyxl")
+        df = _read_excel_with_retry(_get_db_file(), sheet_name=_get_sheet("SHEET_ENTREGUES"), engine="openpyxl")
         return df
     except Exception as e:
         print(f"Erro ao carregar entregues: {e}")
@@ -225,7 +277,7 @@ def get_historico_medias_entregues():
 def update_base_dados(df_novo):
     """Sobrescreve as colunas PROCESSO e SETOR na aba de Base de Dados."""
     try:
-        wb = openpyxl.load_workbook(_get_db_file(), keep_vba=True)
+        wb = _load_workbook_with_retry(_get_db_file(), keep_vba=True)
         ws = wb[_get_sheet("SHEET_BASE_DADOS")]
 
         col_proc = None
@@ -251,7 +303,7 @@ def update_base_dados(df_novo):
                 ws.cell(row=idx + 2, column=col_proc, value=proc_val)
                 ws.cell(row=idx + 2, column=col_setor, value=setor_val if setor_val != "nan" else "")
 
-        wb.save(_get_db_file())
+        _save_workbook_with_retry(wb, _get_db_file())
         return True
     except Exception as e:
         print(f"Erro ao atualizar base de dados: {e}")
@@ -266,7 +318,7 @@ def get_tipo_setores():
         
         # Tenta ler a aba
         try:
-            df = pd.read_excel(db_file, sheet_name=sheet_name, engine="openpyxl")
+            df = _read_excel_with_retry(db_file, sheet_name=sheet_name, engine="openpyxl")
             return df
         except ValueError:
             # Aba não encontrada! Vamos inicializar e salvar os padrões
@@ -280,7 +332,7 @@ def get_tipo_setores():
             df_default = pd.DataFrame(default_data)
             
             # Cria a aba no arquivo Excel
-            wb = openpyxl.load_workbook(db_file, keep_vba=True)
+            wb = _load_workbook_with_retry(db_file, keep_vba=True)
             if sheet_name in wb.sheetnames:
                 ws = wb[sheet_name]
             else:
@@ -295,7 +347,7 @@ def get_tipo_setores():
                 ws.cell(row=r_idx, column=1, value=row["TIPO_PROCESSO"])
                 ws.cell(row=r_idx, column=2, value=row["SETORES"])
                 
-            wb.save(db_file)
+            _save_workbook_with_retry(wb, db_file)
             return df_default
             
     except Exception as e:
@@ -316,7 +368,7 @@ def update_tipo_setores(df_novo):
         db_file = _get_db_file()
         sheet_name = _get_sheet("SHEET_TIPO_SETORES")
         
-        wb = openpyxl.load_workbook(db_file, keep_vba=True)
+        wb = _load_workbook_with_retry(db_file, keep_vba=True)
         if sheet_name in wb.sheetnames:
             ws = wb[sheet_name]
         else:
@@ -340,7 +392,7 @@ def update_tipo_setores(df_novo):
                 ws.cell(row=idx + 2, column=1, value=tipo_val)
                 ws.cell(row=idx + 2, column=2, value=setores_val if setores_val != "nan" else "")
                 
-        wb.save(db_file)
+        _save_workbook_with_retry(wb, db_file)
         return True
     except Exception as e:
         print(f"Erro ao salvar tipo setores: {e}")
@@ -354,7 +406,7 @@ def get_tipo_paradas():
         sheet_name = get_config().get("SHEET_TIPO_PARADAS", "TIPO_PARADAS")
         
         try:
-            df = pd.read_excel(db_file, sheet_name=sheet_name, engine="openpyxl")
+            df = _read_excel_with_retry(db_file, sheet_name=sheet_name, engine="openpyxl")
             return df
         except ValueError:
             # Aba não encontrada! Vamos inicializar e salvar os padrões
@@ -372,7 +424,7 @@ def get_tipo_paradas():
             df_default = pd.DataFrame(default_data)
             
             # Cria a aba no arquivo Excel
-            wb = openpyxl.load_workbook(db_file, keep_vba=True)
+            wb = _load_workbook_with_retry(db_file, keep_vba=True)
             if sheet_name in wb.sheetnames:
                 ws = wb[sheet_name]
             else:
@@ -387,7 +439,7 @@ def get_tipo_paradas():
                 ws.cell(row=r_idx, column=1, value=row["MOTIVO"])
                 ws.cell(row=r_idx, column=2, value=row["TIPO_PARADA"])
                 
-            wb.save(db_file)
+            _save_workbook_with_retry(wb, db_file)
             return df_default
             
     except Exception as e:
@@ -408,7 +460,7 @@ def update_tipo_paradas(df_novo):
         db_file = _get_db_file()
         sheet_name = get_config().get("SHEET_TIPO_PARADAS", "TIPO_PARADAS")
         
-        wb = openpyxl.load_workbook(db_file, keep_vba=True)
+        wb = _load_workbook_with_retry(db_file, keep_vba=True)
         if sheet_name in wb.sheetnames:
             ws = wb[sheet_name]
         else:
@@ -432,7 +484,7 @@ def update_tipo_paradas(df_novo):
                 ws.cell(row=idx + 2, column=1, value=motivo_val)
                 ws.cell(row=idx + 2, column=2, value=tipo_val if tipo_val != "nan" else "")
                 
-        wb.save(db_file)
+        _save_workbook_with_retry(wb, db_file)
         return True
     except Exception as e:
         print(f"Erro ao salvar tipo paradas: {e}")
@@ -453,7 +505,7 @@ def get_mapa_resumido_processos():
     Ex: '19-POLIMENTO (S)' -> 'POLIMENTO'
     """
     try:
-        df_bd = pd.read_excel(
+        df_bd = _read_excel_with_retry(
             _get_apontamento_file(),
             sheet_name=_get_sheet("SHEET_AP_BASE"),
             header=0,
@@ -485,12 +537,11 @@ def get_mapeamento_paradas():
         sheet_name = get_config().get("SHEET_AP_BASE_PARADAS", "BASE PARADAS")
         
         # Verifica se a aba existe no arquivo Excel para evitar erros e warnings desnecessários
-        xl = pd.ExcelFile(file_path, engine="openpyxl")
-        if sheet_name not in xl.sheet_names:
+        if sheet_name not in get_sheet_names(file_path):
             return {}
             
         # Lê a planilha de mapeamento de paradas
-        df = pd.read_excel(xl, sheet_name=sheet_name)
+        df = _read_excel_with_retry(file_path, sheet_name=sheet_name, engine="openpyxl")
         df.columns = [str(c).strip().upper() for c in df.columns]
         
         col_completo = next((c for c in ["MOTIVO_COMPLETO", "MOTIVO", "DESCRICAO"] if c in df.columns), df.columns[0])
@@ -531,7 +582,7 @@ def get_apontamentos_do_dia(data_alvo_date):
         sheet_name = _get_sheet("SHEET_AP_BD")
 
         # Leitura direta — o cabeçalho está na linha 0
-        df = pd.read_excel(file_path, sheet_name=sheet_name, engine="openpyxl")
+        df = _read_excel_with_retry(file_path, sheet_name=sheet_name, engine="openpyxl")
         if df.empty:
             return pd.DataFrame()
 
@@ -619,7 +670,7 @@ def get_all_apontamentos():
         sheet_name = _get_sheet("SHEET_AP_BD")
         
         # Lê as primeiras 20 linhas para encontrar o cabeçalho dinamicamente
-        df_scan = pd.read_excel(file_path, sheet_name=sheet_name, header=None, nrows=20, engine="openpyxl")
+        df_scan = _read_excel_with_retry(file_path, sheet_name=sheet_name, header=None, nrows=20, engine="openpyxl")
         header_row_idx = 0
         for i, row in df_scan.iterrows():
             row_vals = [str(v).strip().upper() for v in row.values]
@@ -627,7 +678,7 @@ def get_all_apontamentos():
                 header_row_idx = i
                 break
         
-        df = pd.read_excel(file_path, sheet_name=sheet_name, header=header_row_idx, engine="openpyxl")
+        df = _read_excel_with_retry(file_path, sheet_name=sheet_name, header=header_row_idx, engine="openpyxl")
         df.columns = [str(c).strip().upper() for c in df.columns]
         return df
     except Exception as e:
@@ -643,7 +694,7 @@ def add_apontamento(record_dict):
     try:
         file_path = _get_apontamento_file()
         sheet_name = _get_sheet("SHEET_AP_BD")
-        wb = openpyxl.load_workbook(file_path)
+        wb = _load_workbook_with_retry(file_path)
         ws = wb[sheet_name]
 
         # Busca dinâmica do cabeçalho (igual ao get)
@@ -681,8 +732,6 @@ def add_apontamento(record_dict):
         system_mapping = _get_system_mapping()
 
         # 1. Primeiro grava os campos mapeados pelo sistema
-
-        # 1. Primeiro grava os campos mapeados pelo sistema
         for key, value in record_dict.items():
             target_col_name = None
             if key in system_mapping:
@@ -700,7 +749,7 @@ def add_apontamento(record_dict):
                 col_idx = headers[target_col_name]
                 ws.cell(row=next_row, column=col_idx, value=value)
         
-        wb.save(file_path)
+        _save_workbook_with_retry(wb, file_path)
         return True
     except Exception as e:
         print(f"Erro ao adicionar apontamento: {e}")
@@ -757,7 +806,7 @@ def get_next_apontamento_id():
         sheet_name = _get_sheet("SHEET_AP_BD")
         
         # Lê apenas a coluna ID se possível, ou as primeiras linhas
-        df = pd.read_excel(file_path, sheet_name=sheet_name, header=None, nrows=100)
+        df = _read_excel_with_retry(file_path, sheet_name=sheet_name, header=None, nrows=100)
         
         # Localiza o cabeçalho
         header_row = 6
@@ -767,7 +816,7 @@ def get_next_apontamento_id():
                 break
         
         # Lê a coluna ID a partir do cabeçalho
-        df_full = pd.read_excel(file_path, sheet_name=sheet_name, skiprows=header_row, engine="openpyxl")
+        df_full = _read_excel_with_retry(file_path, sheet_name=sheet_name, skiprows=header_row, engine="openpyxl")
         df_full.columns = [str(c).strip().upper() for c in df_full.columns]
         
         if "ID" in df_full.columns:
@@ -787,7 +836,7 @@ def add_paradas(paradas_list):
     try:
         file_path = _get_apontamento_file()
         sheet_name = _get_sheet("SHEET_AP_PARADAS")
-        wb = openpyxl.load_workbook(file_path)
+        wb = _load_workbook_with_retry(file_path)
         
         if sheet_name not in wb.sheetnames:
             # Cria a aba se não existir
@@ -805,15 +854,25 @@ def add_paradas(paradas_list):
             if val:
                 headers_map[str(val).strip().upper()] = c
 
+        system_mapping = _get_system_mapping()
+
         next_row = ws.max_row + 1
         for parada in paradas_list:
             for key, val in parada.items():
-                col_name = key.upper()
-                if col_name in headers_map:
-                    ws.cell(row=next_row, column=headers_map[col_name], value=val)
+                target_col = None
+                if key in system_mapping:
+                    for alias in system_mapping[key]:
+                        if alias.upper() in headers_map:
+                            target_col = alias.upper()
+                            break
+                if not target_col and key.upper() in headers_map:
+                    target_col = key.upper()
+                
+                if target_col:
+                    ws.cell(row=next_row, column=headers_map[target_col], value=val)
             next_row += 1
 
-        wb.save(file_path)
+        _save_workbook_with_retry(wb, file_path)
         return True
     except Exception as e:
         print(f"Erro ao adicionar paradas: {e}")
@@ -846,7 +905,7 @@ def add_apontamento_batch(batch_list):
         sheet_bd = _get_sheet("SHEET_AP_BD")
         sheet_paradas = _get_sheet("SHEET_AP_PARADAS")
         
-        wb = openpyxl.load_workbook(file_path)
+        wb = _load_workbook_with_retry(file_path)
         ws_bd = wb[sheet_bd]
         
         # 1. Prepara cabeçalhos e próxima linha da aba DB
@@ -1003,7 +1062,7 @@ def add_apontamento_batch(batch_list):
                             target_cell.alignment = copy(source_cell.alignment)
         except: pass
 
-        wb.save(file_path)
+        _save_workbook_with_retry(wb, file_path)
         return True, f"{len(batch_list)} registros salvos."
     except Exception as e:
         import traceback
@@ -1021,7 +1080,7 @@ def get_apontamentos_por_bloco(bloco_id):
         sheet_name = _get_sheet("SHEET_AP_BD")
         
         # Lê as primeiras 20 linhas para encontrar o cabeçalho dinamicamente
-        df_scan = pd.read_excel(file_path, sheet_name=sheet_name, header=None, nrows=20, engine="openpyxl")
+        df_scan = _read_excel_with_retry(file_path, sheet_name=sheet_name, header=None, nrows=20, engine="openpyxl")
         header_row_idx = 0
         for i, row in df_scan.iterrows():
             row_vals = [str(v).strip().upper() for v in row.values]
@@ -1030,7 +1089,7 @@ def get_apontamentos_por_bloco(bloco_id):
                 break
         
         # Agora lê os dados de verdade a partir do cabeçalho encontrado
-        df = pd.read_excel(file_path, sheet_name=sheet_name, header=header_row_idx, engine="openpyxl")
+        df = _read_excel_with_retry(file_path, sheet_name=sheet_name, header=header_row_idx, engine="openpyxl")
         df.columns = [str(c).strip().upper() for c in df.columns]
         
         # Mapeia qual coluna é o bloco usando o sistema de mapping robusto
@@ -1092,7 +1151,7 @@ def get_bloco_info(bloco_id):
 
         # Lê apenas as colunas necessárias para performance
         # Header está na linha 9 (skiprows=8)
-        df = pd.read_excel(path, engine="pyxlsb", sheet_name="PLAN. BLOCOS", skiprows=8)
+        df = _read_excel_with_retry(path, engine="pyxlsb", sheet_name="PLAN. BLOCOS", skiprows=8)
         
         # Normaliza nomes de colunas
         df.columns = [str(c).strip().upper() for c in df.columns]
@@ -1136,7 +1195,7 @@ def get_bloco_info(bloco_id):
         cfg = get_config()
         path = cfg.get("CHAPAS_FILE")
         if path and os.path.exists(path):
-            df_ch = pd.read_excel(path, sheet_name="ENTRADAS", engine="openpyxl")
+            df_ch = _read_excel_with_retry(path, sheet_name="ENTRADAS", engine="openpyxl")
             # Normaliza nomes de colunas
             df_ch.columns = [str(c).strip().upper() for c in df_ch.columns]
             
@@ -1169,7 +1228,7 @@ def get_listas_endurentes():
     """Retorna a lista de endurecedores e suas proporções da aba LISTAS."""
     try:
         file_path = _get_apontamento_file()
-        df = pd.read_excel(file_path, sheet_name='LISTAS', engine="openpyxl")
+        df = _read_excel_with_retry(file_path, sheet_name='LISTAS', engine="openpyxl")
         df.columns = [str(c).strip().upper() for c in df.columns]
         return df.to_dict(orient='records')
     except Exception as e:
@@ -1184,7 +1243,7 @@ def get_apontamento_paradas(id_apontamento):
     try:
         file_path = _get_apontamento_file()
         sheet_name = _get_sheet("SHEET_AP_PARADAS")
-        df = pd.read_excel(file_path, sheet_name=sheet_name, engine="openpyxl")
+        df = _read_excel_with_retry(file_path, sheet_name=sheet_name, engine="openpyxl")
         df.columns = [str(c).strip().upper() for c in df.columns]
         
         # Filtra pelo ID
@@ -1205,7 +1264,7 @@ def get_apontamento_insumos(id_apontamento):
     try:
         file_path = _get_apontamento_file()
         sheet_name = _get_sheet("SHEET_AP_INSUMOS")
-        df = pd.read_excel(file_path, sheet_name=sheet_name, engine="openpyxl")
+        df = _read_excel_with_retry(file_path, sheet_name=sheet_name, engine="openpyxl")
         df.columns = [str(c).strip().upper() for c in df.columns]
         
         # Filtra pelo ID
@@ -1226,7 +1285,7 @@ def delete_apontamento(id_apontamento):
     """
     try:
         file_path = _get_apontamento_file()
-        wb = openpyxl.load_workbook(file_path)
+        wb = _load_workbook_with_retry(file_path)
         
         id_val_float = float(id_apontamento)
         
@@ -1316,7 +1375,7 @@ def delete_apontamento(id_apontamento):
                         table.ref = new_ref
         except: pass
 
-        wb.save(file_path)
+        _save_workbook_with_retry(wb, file_path)
         return True
     except Exception as e:
         print(f"Erro ao excluir apontamento {id_apontamento}: {e}")
@@ -1330,7 +1389,7 @@ def update_apontamento(id_apontamento, updates_dict):
     """
     try:
         file_path = _get_apontamento_file()
-        wb = openpyxl.load_workbook(file_path)
+        wb = _load_workbook_with_retry(file_path)
         sheet_bd = _get_sheet("SHEET_AP_BD")
         ws = wb[sheet_bd]
         
@@ -1396,7 +1455,7 @@ def update_apontamento(id_apontamento, updates_dict):
                 col_idx = headers[target_col]
                 ws.cell(row=target_row_idx, column=col_idx, value=value)
                 
-        wb.save(file_path)
+        _save_workbook_with_retry(wb, file_path)
         return True
     except Exception as e:
         print(f"Erro ao atualizar apontamento {id_apontamento}: {e}")
@@ -1410,7 +1469,7 @@ def update_apontamento_relations(id_apontamento, paradas_list, insumos_list):
     """
     try:
         file_path = _get_apontamento_file()
-        wb = openpyxl.load_workbook(file_path)
+        wb = _load_workbook_with_retry(file_path)
         
         id_val_float = float(id_apontamento)
         system_mapping = _get_system_mapping()
@@ -1505,9 +1564,174 @@ def update_apontamento_relations(id_apontamento, paradas_list, insumos_list):
                             ws_i.cell(row=next_row_i, column=headers_i[target_col], value=value)
                     next_row_i += 1
 
-        wb.save(file_path)
+        _save_workbook_with_retry(wb, file_path)
         return True
     except Exception as e:
         print(f"Erro ao atualizar relações do apontamento {id_apontamento}: {e}")
+        return False
+
+
+def update_apontamento_full(id_apontamento, updates_dict, paradas_list=None, insumos_list=None):
+    """
+    Atualiza cabeçalho, paradas e insumos de um apontamento de uma vez só,
+    abrindo e salvando o arquivo Excel apenas uma vez para evitar conflitos de trava de arquivos.
+    """
+    try:
+        file_path = _get_apontamento_file()
+        wb = _load_workbook_with_retry(file_path)
+        id_val_float = float(id_apontamento)
+        system_mapping = _get_system_mapping()
+
+        # 1. ATUALIZA CABEÇALHO (Aba DB)
+        sheet_bd = _get_sheet("SHEET_AP_BD")
+        if sheet_bd in wb.sheetnames:
+            ws = wb[sheet_bd]
+            
+            # Busca dinâmica do cabeçalho
+            header_row_idx = 6
+            for r in range(1, 21):
+                row_vals = [str(ws.cell(row=r, column=c).value).strip().upper() for c in range(1, ws.max_column + 1)]
+                if "PROCESSO" in row_vals or "DATA REG" in row_vals or "MATERIAL+BLOCO" in row_vals:
+                    header_row_idx = r
+                    break
+            
+            # Mapeia colunas do cabeçalho
+            headers = {}
+            for c in range(1, ws.max_column + 1):
+                val = ws.cell(row=header_row_idx, column=c).value
+                if val:
+                    headers[str(val).strip().upper()] = c
+            
+            # Se a coluna de observações não existir na planilha, cria uma nova
+            if not any(h in headers for h in ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS"]):
+                col_idx = 1
+                while ws.cell(row=header_row_idx, column=col_idx).value is not None:
+                    col_idx += 1
+                ws.cell(row=header_row_idx, column=col_idx, value="OBSERVAÇÕES")
+                headers["OBSERVAÇÕES"] = col_idx
+            
+            col_id_idx = headers.get("ID")
+            if col_id_idx:
+                # Localiza a linha correspondente ao ID
+                target_row_idx = None
+                for r in range(header_row_idx + 1, ws.max_row + 1):
+                    cell_val = ws.cell(row=r, column=col_id_idx).value
+                    try:
+                        if cell_val is not None and float(cell_val) == id_val_float:
+                            target_row_idx = r
+                            break
+                    except:
+                        pass
+                
+                if target_row_idx:
+                    # Atualiza os valores
+                    for key, value in updates_dict.items():
+                        target_col = None
+                        if key in system_mapping:
+                            for alias in system_mapping[key]:
+                                if alias.upper() in headers:
+                                    target_col = alias.upper()
+                                    break
+                        if not target_col and key.upper() in headers:
+                            target_col = key.upper()
+                            
+                        if target_col:
+                            col_idx = headers[target_col]
+                            ws.cell(row=target_row_idx, column=col_idx, value=value)
+
+        # 2. ATUALIZA PARADAS
+        sheet_paradas = _get_sheet("SHEET_AP_PARADAS")
+        if sheet_paradas in wb.sheetnames:
+            ws_p = wb[sheet_paradas]
+            col_id_idx_p = None
+            for c in range(1, ws_p.max_column + 1):
+                val = ws_p.cell(row=1, column=c).value
+                if val and str(val).strip().upper() == "ID_APONTAMENTO":
+                    col_id_idx_p = c
+                    break
+            
+            if col_id_idx_p:
+                for r in range(ws_p.max_row, 1, -1):
+                    cell_val = ws_p.cell(row=r, column=col_id_idx_p).value
+                    try:
+                        if cell_val is not None and float(cell_val) == id_val_float:
+                            ws_p.delete_rows(r, 1)
+                    except:
+                        pass
+            
+            # Grava as novas paradas
+            headers_p = {}
+            for c in range(1, ws_p.max_column + 1):
+                val = ws_p.cell(row=1, column=c).value
+                if val:
+                    headers_p[str(val).strip().upper()] = c
+            
+            next_row_p = ws_p.max_row + 1
+            if paradas_list:
+                for p in paradas_list:
+                    p["ID_APONTAMENTO"] = id_val_float
+                    for key, value in p.items():
+                        target_col = None
+                        if key in system_mapping:
+                            for alias in system_mapping[key]:
+                                if alias.upper() in headers_p:
+                                    target_col = alias.upper()
+                                    break
+                        if not target_col and key.upper() in headers_p:
+                            target_col = key.upper()
+                        
+                        if target_col:
+                            ws_p.cell(row=next_row_p, column=headers_p[target_col], value=value)
+                    next_row_p += 1
+
+        # 3. ATUALIZA INSUMOS
+        sheet_insumos = _get_sheet("SHEET_AP_INSUMOS")
+        if sheet_insumos in wb.sheetnames:
+            ws_i = wb[sheet_insumos]
+            col_id_idx_i = None
+            for c in range(1, ws_i.max_column + 1):
+                val = ws_i.cell(row=1, column=c).value
+                if val and str(val).strip().upper() == "ID_APONTAMENTO":
+                    col_id_idx_i = c
+                    break
+            
+            if col_id_idx_i:
+                for r in range(ws_i.max_row, 1, -1):
+                    cell_val = ws_i.cell(row=r, column=col_id_idx_i).value
+                    try:
+                        if cell_val is not None and float(cell_val) == id_val_float:
+                            ws_i.delete_rows(r, 1)
+                    except:
+                        pass
+                        
+            # Grava os novos insumos
+            headers_i = {}
+            for c in range(1, ws_i.max_column + 1):
+                val = ws_i.cell(row=1, column=c).value
+                if val:
+                    headers_i[str(val).strip().upper()] = c
+            
+            next_row_i = ws_i.max_row + 1
+            if insumos_list:
+                for i_data in insumos_list:
+                    i_data["ID_APONTAMENTO"] = id_val_float
+                    for key, value in i_data.items():
+                        target_col = None
+                        if key in system_mapping:
+                            for alias in system_mapping[key]:
+                                if alias.upper() in headers_i:
+                                    target_col = alias.upper()
+                                    break
+                        if not target_col and key.upper() in headers_i:
+                            target_col = key.upper()
+                        
+                        if target_col:
+                            ws_i.cell(row=next_row_i, column=headers_i[target_col], value=value)
+                    next_row_i += 1
+
+        _save_workbook_with_retry(wb, file_path)
+        return True
+    except Exception as e:
+        print(f"Erro ao atualizar apontamento completo {id_apontamento}: {e}")
         return False
 

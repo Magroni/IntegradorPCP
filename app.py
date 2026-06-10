@@ -533,6 +533,12 @@ with tab_apontamento:
     with st.expander("➕ Lançar Novo Apontamento Manual", expanded=True):
         st.markdown("### Registro de Produção")
         
+        # Exibe o ID previsto do apontamento
+        next_id_val = dm.get_next_apontamento_id()
+        carrinho_len = len(st.session_state.get("carrinho_ap", []))
+        predicted_id = next_id_val + carrinho_len
+        st.info(f"🆔 **ID Previsto para este apontamento:** `{predicted_id}`")
+        
         # 1. BUSCA DE BLOCO (Sempre disponível no topo)
         if "block_key_counter" not in st.session_state:
             st.session_state["block_key_counter"] = 0
@@ -942,8 +948,9 @@ with tab_apontamento:
                                         "OBSERVACOES": f_observacoes.upper() if f_observacoes else ""
                                     }
                                     if "carrinho_ap" not in st.session_state: st.session_state["carrinho_ap"] = []
+                                    pred_id = dm.get_next_apontamento_id() + len(st.session_state["carrinho_ap"])
                                     st.session_state["carrinho_ap"].append((novo_rec, par_finais, ins_finais))
-                                    st.toast(f"📍 Bloco {f_bloco} no carrinho!", icon="🛒")
+                                    st.toast(f"📍 Bloco {f_bloco} no carrinho! (ID previsto: {pred_id})", icon="🛒")
                                     
                                     # Salva valores para herança no próximo apontamento
                                     st.session_state["prev_tipo_proc"] = f_tipo
@@ -976,9 +983,11 @@ with tab_apontamento:
         st.info(f"Você tem {len(st.session_state['carrinho_ap'])} apontamento(s) no carrinho.")
         
         dados_view = []
+        next_id_cart = dm.get_next_apontamento_id()
         for idx, (rec, par, ins) in enumerate(st.session_state["carrinho_ap"]):
             dados_view.append({
                 "Nº": idx + 1,
+                "ID Previsto": next_id_cart + idx,
                 "Bloco": rec["BLOCO_RAW"], 
                 "Material": rec["NOME_MATERIAL"], 
                 "Processo": rec["PROCESSO_APONTADO"], 
@@ -1015,7 +1024,8 @@ with tab_apontamento:
                     
                     ok, err = dm.add_apontamento_batch(batch)
                     if ok:
-                        st.success(f"✅ {len(batch)} itens salvos com sucesso!")
+                        ids_saved = ", ".join(str(rec["ID"]) for rec, _, _ in batch)
+                        st.success(f"✅ {len(batch)} itens salvos com sucesso! (IDs gerados: {ids_saved})")
                         st.session_state["carrinho_ap"] = []
                         st.balloons()
                         st.rerun()
@@ -1626,16 +1636,15 @@ with tab_consulta:
                                                  "OBSERVACOES": edit_obs.upper() if edit_obs else ""
                                             }
                                             with st.spinner("Salvando alterações no Excel..."):
-                                                ok_main = dm.update_apontamento(selected_id, updates)
-                                                ok_rel = dm.update_apontamento_relations(selected_id, par_finais, ins_finais)
+                                                ok = dm.update_apontamento_full(selected_id, updates, par_finais, ins_finais)
                                                 
-                                                if ok_main and ok_rel:
+                                                if ok:
                                                     st.success("✅ Apontamento, Paradas e Insumos atualizados com sucesso!")
                                                     st.session_state.pop(f"edit_ap_{selected_id}", None)
                                                     st.session_state.pop("df_ap_cache", None)
                                                     st.rerun()
                                                 else:
-                                                    st.error("❌ Ocorreu um erro ao salvar no Excel. Verifique se o arquivo está aberto em outro programa.")
+                                                    st.error("❌ Ocorreu um erro ao salvar no Excel. Verifique se o arquivo está aberto em outro programa ou se o drive de rede está acessível.")
                                         
                         if btn_cancelar_edit:
                             st.session_state.pop(f"edit_ap_{selected_id}", None)
