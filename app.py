@@ -2250,7 +2250,7 @@ with tab_analises:
                             motivo_top = c_motivos_totais.iloc[0]["MOTIVO"] if not c_motivos_totais.empty else "-"
                             motivos_ordenados = c_motivos_totais["MOTIVO"].tolist()
                              
-                            c_motivos = df_paradas_filtrado.groupby(["MOTIVO", c_st])[["TEMPO", "PREJUIZO"]].sum().reset_index()
+                            c_motivos = df_paradas_filtrado.groupby(["MOTIVO", c_st, "TIPO_PARADA"])[["TEMPO", "PREJUIZO"]].sum().reset_index()
                             c_motivos["TEMPO_HHMM"] = c_motivos["TEMPO"].apply(format_to_hhmm)
                              
                             c_setores = df_paradas_filtrado.groupby(c_st)[["TEMPO", "PREJUIZO"]].sum().reset_index()
@@ -2375,9 +2375,27 @@ with tab_analises:
                             st.subheader("🖨️ Relatório Formal A3 de Desempenho (Lean Manufacturing)")
                             st.markdown("Gere um relatório operacional de inatividade e impactos financeiros estruturado no tradicional **Layout A3 Landscape (420mm x 297mm)**, ideal para apresentações formais de diretoria, impressão física ou salvamento em PDF.")
                             
-                            show_a3 = st.checkbox("📂 Visualizar Relatório A3 de Paradas e Ociosidade", value=False, key="chk_relatorio_a3")
-                            show_bw = st.checkbox("🕶️ Modo Alto Contraste (Preto e Branco para Impressão)", value=False, key="chk_bw_print")
+                            col_ctrl1, col_ctrl2 = st.columns(2)
+                            with col_ctrl1:
+                                show_a3 = st.checkbox("📂 Visualizar Relatório A3 de Paradas e Ociosidade", value=False, key="chk_relatorio_a3")
+                                show_bw = st.checkbox("🕶️ Modo Alto Contraste (Preto e Branco para Impressão)", value=False, key="chk_bw_print")
+                                analisar_custos = st.checkbox("💸 Analisar Custos Financeiros", value=False, key="chk_analisar_custos")
+                            with col_ctrl2:
+                                if show_a3:
+                                    top_n_maq_cfg = st.slider("Motivos por Máquina (Detalhamento)", min_value=1, max_value=5, value=2, step=1, key="slider_top_n_maq")
+                                else:
+                                    top_n_maq_cfg = 3
+                            
                             if show_a3:
+                                # Dynamic headers and columns based on analisar_custos
+                                custo_header_html = "<th style='text-align:right; width:100px;'>Custo (R$)</th>" if analisar_custos else ""
+                                setores_custo_headers = "<th style='text-align:center;'>Taxa (R$/h)</th><th style='text-align:right;'>Prejuízo</th>" if analisar_custos else ""
+                                ocorrencias_custo_header = "<th style='text-align:right; width:120px;'>Prejuízo Individual</th>" if analisar_custos else ""
+                                
+                                if analisar_custos:
+                                    meta_ociosidade = f"<b>Inatividade:</b> {format_to_hhmm(tempo_tot_min)} (Prejuízo Est.: R$ {prejuizo_estimado:,.2f})"
+                                else:
+                                    meta_ociosidade = f"<b>Inatividade:</b> {format_to_hhmm(tempo_tot_min)} ({len(df_paradas_filtrado)} ocor.)" 
                                 body_class = "bw-contrast" if show_bw else ""
                                 # Calcular faixa exata de datas cobertas no período filtrado
                                 faixa_datas = ""
@@ -2654,12 +2672,12 @@ with tab_analises:
                                     except:
                                         cores_s = "#AB63FA"
                                         
+                                    custo_cells_html = f"<td style='text-align:center; font-weight:600; color:#1e3a8a;'>R$ {c_val:,.2f}/h</td><td style='text-align:right; font-weight:600; color:#b91c1c;'>{prej_fmt}</td>" if analisar_custos else ""
                                     setores_rows_html += f"""
                                     <tr>
                                         <td style='font-weight:600; color:#334155;'>{maq_name}</td>
                                         <td style='text-align:center;'>{r['TEMPO_HHMM']}</td>
-                                        <td style='text-align:center; font-weight:600; color:#1e3a8a;'>R$ {c_val:,.2f}/h</td>
-                                        <td style='text-align:right; font-weight:600; color:#b91c1c;'>{prej_fmt}</td>
+                                        {custo_cells_html}
                                         <td style='width:100px;'>
                                             <div style='display:flex; justify-content:space-between; font-size:8.5px; color:#64748b; margin-bottom:1px;'>
                                                 <span>{pct:.1f}%</span>
@@ -2670,6 +2688,92 @@ with tab_analises:
                                         </td>
                                     </tr>"""
                                     
+                                # D2. DETALHAMENTO DE PARADAS POR MÁQUINA E MOTIVO
+                                maquinas_paradas_rows_html = ""
+                                if not c_setores.empty and not c_motivos.empty:
+                                    setores_tempo_total = c_setores.sort_values("TEMPO", ascending=False)
+                                    cores_tableau = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+                                    
+                                    for idx_s, row_s in setores_tempo_total.iterrows():
+                                        maq_name = row_s[c_st]
+                                        maq_tempo_total = row_s["TEMPO"]
+                                        maq_tempo_hhmm = row_s["TEMPO_HHMM"]
+                                        
+                                        try:
+                                            color_idx = setores_ordenados.index(maq_name) % len(cores_tableau)
+                                            cores_s = cores_tableau[color_idx]
+                                        except:
+                                            cores_s = "#3b82f6"
+                                            
+                                        colspan_val = 4 if analisar_custos else 3
+                                        maquinas_paradas_rows_html += f"""
+                                        <tr style="background-color: #f8fafc; font-weight: 700; border-top: 1.5px solid #cbd5e1;">
+                                            <td colspan="{colspan_val}" style="color: #1e3a8a; font-size: 9.5px; padding: 4px 6px;">
+                                                🛠️ {maq_name} <span style="font-weight: normal; color: #64748b; font-size: 8.5px;">(Tempo Total Parado: {maq_tempo_hhmm})</span>
+                                            </td>
+                                        </tr>"""
+                                        
+                                        df_motivos_maq = c_motivos[c_motivos[c_st] == maq_name].copy()
+                                        df_motivos_maq = df_motivos_maq.sort_values("TEMPO", ascending=False)
+                                        
+                                        top_n_maq = top_n_maq_cfg
+                                        df_top_maq = df_motivos_maq.head(top_n_maq)
+                                        df_others_maq = df_motivos_maq.iloc[top_n_maq:]
+                                        
+                                        for idx_m, row_m in df_top_maq.iterrows():
+                                            pct_maq = (row_m["TEMPO"] / maq_tempo_total * 100) if maq_tempo_total > 0 else 0
+                                            prej_fmt = f"R$ {row_m['PREJUIZO']:,.2f}"
+                                            tipo_p = row_m.get("TIPO_PARADA", "")
+                                            
+                                            badge_html = ""
+                                            if tipo_p == "Operacional":
+                                                badge_html = ' <span style="background-color: #f0fdf4; color: #16a34a; border: 1px solid #dcfce7; padding: 1px 4px; border-radius: 3px; font-size: 7.5px; margin-left: 6px; font-weight: bold; text-transform: uppercase;">Operacional</span>'
+                                            elif tipo_p == "Intervenção":
+                                                badge_html = ' <span style="background-color: #fffbeb; color: #d97706; border: 1px solid #fef3c7; padding: 1px 4px; border-radius: 3px; font-size: 7.5px; margin-left: 6px; font-weight: bold; text-transform: uppercase;">Intervenção</span>'
+                                            elif tipo_p == "Crítica":
+                                                badge_html = ' <span style="background-color: #fef2f2; color: #ef4444; border: 1px solid #fee2e2; padding: 1px 4px; border-radius: 3px; font-size: 7.5px; margin-left: 6px; font-weight: bold; text-transform: uppercase;">Crítica</span>'
+                                            
+                                            cost_cell_html = f"<td style='text-align:right; font-weight:600; color:#1e3a8a;'>{prej_fmt}</td>" if analisar_custos else ""
+                                            maquinas_paradas_rows_html += f"""
+                                            <tr>
+                                                <td style="padding-left: 15px; color: #475569; font-weight: 500;">{row_m['MOTIVO']}{badge_html}</td>
+                                                <td style="text-align:center;">{row_m['TEMPO_HHMM']}</td>
+                                                {cost_cell_html}
+                                                <td style="width:100px;">
+                                                    <div style="display:flex; justify-content:space-between; font-size:8px; color:#64748b; margin-bottom:1px;">
+                                                        <span>{pct_maq:.1f}%</span>
+                                                    </div>
+                                                    <div class="progress-container">
+                                                        <div class="progress-bar" style="width: {pct_maq}%; background: {cores_s};"></div>
+                                                    </div>
+                                                </td>
+                                            </tr>"""
+                                            
+                                        if not df_others_maq.empty:
+                                            others_tempo = df_others_maq["TEMPO"].sum()
+                                            others_prej = df_others_maq["PREJUIZO"].sum()
+                                            others_tempo_hhmm = format_to_hhmm(others_tempo)
+                                            pct_others = (others_tempo / maq_tempo_total * 100) if maq_tempo_total > 0 else 0
+                                            
+                                            cost_cell_html = f"<td style='text-align:right; color: #94a3b8; font-weight:600;'>R$ {others_prej:,.2f}</td>" if analisar_custos else ""
+                                            maquinas_paradas_rows_html += f"""
+                                            <tr style="font-style: italic; background-color: #fafafa;">
+                                                <td style="padding-left: 15px; color: #94a3b8; font-weight: 500;">OUTROS ({len(df_others_maq)} motivos)</td>
+                                                <td style="text-align:center; color: #94a3b8;">{others_tempo_hhmm}</td>
+                                                {cost_cell_html}
+                                                <td style="width:100px;">
+                                                    <div style="display:flex; justify-content:space-between; font-size:8px; color:#94a3b8; margin-bottom:1px;">
+                                                        <span>{pct_others:.1f}%</span>
+                                                    </div>
+                                                    <div class="progress-container">
+                                                        <div class="progress-bar" style="width: {pct_others}%; background: #94a3b8;"></div>
+                                                    </div>
+                                                </td>
+                                            </tr>"""
+                                else:
+                                    colspan_val = 4 if analisar_custos else 3
+                                    maquinas_paradas_rows_html = f"<tr><td colspan='{colspan_val}' style='text-align:center; color:#64748b;'>Nenhuma parada registrada</td></tr>"
+
                                 # F4. LEAN SEVERIDADE BREAKDOWN (Farol Lean: Operacional, Intervenção, Crítica)
                                 lean_severity_cards_html = ""
                                 if not df_paradas_filtrado.empty:
@@ -3109,7 +3213,7 @@ with tab_analises:
                                             <div class="meta-item"><b>Período Analisado:</b> {periodo_exibicao}</div>
                                             <div class="meta-item"><b>Data de Emissão:</b> {datetime.now().strftime("%d/%m/%Y %H:%M")}</div>
                                             <div class="meta-item"><b>Responsável:</b> PCP Costa Granitos</div>
-                                            <div class="meta-item"><b>Filtros Ativos:</b> {len(maquinas_parada_sel)} Máqs. / {len(motivos_sel)} Motivos</div>
+                                            <div class="meta-item">{meta_ociosidade}</div>
                                         </div>
                                         
                                         <div style="height: 6px;"></div>
@@ -3195,35 +3299,13 @@ with tab_analises:
                                             <!-- Coluna Direita: Paradas & Inatividade -->
                                             <div class="column-section" style="display:flex; flex-direction:column; justify-content:space-between; gap:6px;">
                                                 <div>
-                                                    <div class="section-title">6. KPIs de Paradas &amp; Ociosidade</div>
-                                                    <div class="kpi-grid">
-                                                        <div class="kpi-card" style="border-color:#fee2e2; background:#fef2f2;">
-                                                            <div class="kpi-lbl" style="color:#ef4444;">Tempo Total Ocioso</div>
-                                                            <div class="kpi-val" style="color:#ef4444; font-size:15px;">{format_to_hhmm(tempo_tot_min)}</div>
-                                                        </div>
-                                                        <div class="kpi-card" style="border-color:#fee2e2; background:#fef2f2;">
-                                                            <div class="kpi-lbl" style="color:#ef4444;">Prejuízo Estimado</div>
-                                                            <div class="kpi-val" style="color:#ef4444; font-size:15px;">R$ {prejuizo_estimado:,.2f}</div>
-                                                        </div>
-                                                        <div class="kpi-card">
-                                                            <div class="kpi-lbl">Principal Causa</div>
-                                                            <div class="kpi-val" style="font-size:11px; padding-top:4px;">{str(motivo_top).upper()}</div>
-                                                        </div>
-                                                        <div class="kpi-card">
-                                                            <div class="kpi-lbl">Máquina Mais Ociosa</div>
-                                                            <div class="kpi-val" style="font-size:11px; padding-top:4px;">{str(setor_top).upper()}</div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                
-                                                <div>
-                                                    <div class="section-title">7. Pareto de Paradas por Motivo</div>
+                                                    <div class="section-title">6. Pareto de Paradas por Motivo</div>
                                                     <table class="a3-table">
                                                         <thead>
                                                             <tr>
                                                                 <th>Motivo da Parada</th>
                                                                 <th style='text-align:center; width:60px;'>Duração</th>
-                                                                <th style='text-align:right; width:100px;'>Custo (R$)</th>
+                                                                {custo_header_html}
                                                                 <th style='text-align:left; width:110px;'>Representação (%)</th>
                                                             </tr>
                                                         </thead>
@@ -3234,14 +3316,13 @@ with tab_analises:
                                                 </div>
                                                 
                                                 <div>
-                                                    <div class="section-title">8. Ocupação de Máquina &amp; Impacto Financeiro Mapeado</div>
+                                                    <div class="section-title">7. Pareto de Paradas por Máquina</div>
                                                     <table class="a3-table">
                                                         <thead>
                                                             <tr>
                                                                 <th>Máquina / Setor</th>
                                                                 <th style='text-align:center;'>Duração</th>
-                                                                <th style='text-align:center;'>Taxa (R$/h)</th>
-                                                                <th style='text-align:right;'>Prejuízo</th>
+                                                                {setores_custo_headers}
                                                                 <th style='text-align:left; width:110px;'>Representação (%)</th>
                                                             </tr>
                                                         </thead>
@@ -3252,17 +3333,27 @@ with tab_analises:
                                                 </div>
                                                 
                                                 <div>
-                                                    <div class="section-title">9. Análise Lean: Severidade e Frequência das Paradas</div>
-                                                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 2px;">
-                                                        {lean_severity_cards_html}
-                                                    </div>
+                                                    <div class="section-title">8. Detalhamento de Paradas por Máquina e Motivo</div>
+                                                    <table class="a3-table">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>Máquina / Motivo da Parada</th>
+                                                                <th style='text-align:center; width:60px;'>Duração</th>
+                                                                {custo_header_html}
+                                                                <th style='text-align:left; width:110px;'>Representação (%)</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {maquinas_paradas_rows_html}
+                                                        </tbody>
+                                                    </table>
                                                 </div>
                                             </div>
                                         </div>
                                         
                                         <!-- Seção Inferior: Ocorrências Críticas (Top 5) -->
                                         <div class="bottom-section" style="margin-bottom:0; padding: 6px 10px;">
-                                            <div class="section-title" style="margin-bottom:4px;">10. Ocorrências Mais Críticas de Paradas (Top 5 por Duração)</div>
+                                            <div class="section-title" style="margin-bottom:4px;">9. Ocorrências Mais Críticas de Paradas (Top 5 por Duração)</div>
                                             <table class="a3-table" style="font-size: 9px;">
                                                 <thead>
                                                     <tr>
@@ -3272,7 +3363,7 @@ with tab_analises:
                                                         <th style='text-align:center; width:80px;'>Data</th>
                                                         <th style='text-align:center; width:150px;'>Intervalo de Tempo</th>
                                                         <th style='text-align:center; width:80px;'>Duração (HH:MM)</th>
-                                                        <th style='text-align:right; width:120px;'>Prejuízo Individual</th>
+                                                        {ocorrencias_custo_header}
                                                     </tr>
                                                 </thead>
                                                 <tbody>
